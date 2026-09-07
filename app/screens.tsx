@@ -3,7 +3,15 @@ import { Users, Plus } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { NativeSelect } from '@/components/ui/native-select';
 import { useApp, PersonLink } from './context';
-import { Avatar, uid, stamp, type Row } from './shared';
+import {
+  mediaURL,
+  albumName,
+  profileName,
+  Avatar,
+  uid,
+  stamp,
+  type Row,
+} from './shared';
 import { Feed } from './feed';
 
 export function Title({
@@ -36,9 +44,11 @@ export function Profile({ id }: { id: string }) {
           </button>
         }
       >
-        {p.name}
+        {profileName(p)}
       </Title>
-      <p className="profile-bio">{p.bio}</p>
+      <p className="profile-bio">
+        {p.state === 'stub' ? 'Full profile data is unavailable.' : p.bio}
+      </p>
       <Tabs key={id} defaultValue="Wall" className="period-tabs">
         <TabsList>
           {['Wall', 'Info', 'Photos', 'Boxes'].map((t) => (
@@ -225,7 +235,11 @@ export function Photos({ ownerId }: { ownerId?: string }) {
   const photos = world.photos.filter(
     (p: Row) => !ownerId || p.ownerId === ownerId,
   );
-  const albums = [...new Set<string>(photos.map((p: Row) => p.album))];
+  const albums = world.albums.filter(
+    (a) =>
+      (!ownerId || a.ownerId === ownerId) &&
+      photos.some((p) => p.albumId === a.id),
+  );
   return (
     <>
       <Title
@@ -238,23 +252,34 @@ export function Photos({ ownerId }: { ownerId?: string }) {
           </button>
         }
       >
-        {album || 'Photos'}
+        {album ? albumName(world, album) : 'Photos'}
       </Title>
       {album ? (
         <>
           <button className="back-link" onClick={() => setAlbum('')}>
             « All albums
           </button>
+          <button
+            className="gray-button"
+            onClick={() =>
+              open({
+                kind: 'album',
+                row: world.albums.find((a) => a.id === album),
+              })
+            }
+          >
+            Edit Album
+          </button>
           <div className="photo-grid">
             {photos
-              .filter((p: Row) => p.album === album)
+              .filter((p: Row) => p.albumId === album)
               .map((p: Row) => (
                 <button
                   className="album"
                   key={p.id}
                   onClick={() => open({ kind: 'viewPhoto', row: p })}
                 >
-                  <img src={p.src} alt={p.caption} />
+                  <img src={mediaURL(world, p.mediaId)} alt={p.caption} />
                   <b>{p.caption}</b>
                 </button>
               ))}
@@ -263,11 +288,21 @@ export function Photos({ ownerId }: { ownerId?: string }) {
       ) : (
         <div className="photo-grid">
           {albums.map((a) => (
-            <button className="album" key={a} onClick={() => setAlbum(a)}>
-              <img src={photos.find((p: Row) => p.album === a)!.src} alt={a} />
-              <b>{a}</b>
+            <button className="album" key={a.id} onClick={() => setAlbum(a.id)}>
+              <img
+                src={mediaURL(
+                  world,
+                  a.coverMediaId ||
+                    photos.find((p: Row) => p.albumId === a.id)?.mediaId,
+                )}
+                alt={a.name}
+              />
+              <b>{a.name}</b>
               <span>
-                {photos.filter((p: Row) => p.album === a).length} photos
+                {profileName(world.profiles.find((p) => p.id === a.ownerId))}
+              </span>
+              <span>
+                {photos.filter((p: Row) => p.albumId === a.id).length} photos
               </span>
             </button>
           ))}
@@ -468,7 +503,7 @@ export function Group({ id }: { id: string }) {
             <button
               key={m.id}
               onClick={() => go('profile', m.profileId)}
-              aria-label={person(m.profileId).name}
+              aria-label={profileName(person(m.profileId))}
             >
               <Avatar person={person(m.profileId)} size={35} />
             </button>
@@ -534,7 +569,7 @@ export function Messages() {
                 >
                   <Avatar person={person(other)} />
                   <div className="grow">
-                    <b className="person-name">{person(other).name}</b>
+                    <b className="person-name">{profileName(person(other))}</b>
                     <b className="message-subject">{m.subject}</b>
                     <p>{m.body}</p>
                   </div>

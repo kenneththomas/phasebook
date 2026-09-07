@@ -213,8 +213,9 @@ export function createStore(
   function put(table, input) {
     return transaction(() => {
       checkTable(table);
-      let record = normalize(table, input);
-      record.id ??= randomUUID();
+      if (!input || typeof input !== 'object' || Array.isArray(input))
+        throw new Error('Invalid record.');
+      let record = { ...input, id: input.id ?? randomUUID() };
       let previous = get(table, record.id);
       record.externalId ??= previous?.externalId ?? newExternalId();
       const existing = resolveExternal(table, record.externalId);
@@ -222,19 +223,22 @@ export function createStore(
         if (
           table !== 'profiles' ||
           existing.state !== 'stub' ||
-          record.state !== 'full' ||
+          (record.state ?? 'full') !== 'full' ||
           previous
         )
           throw new Error(`Duplicate external id in ${table}.`);
-        record = normalize(table, {
+        record = {
           ...existing,
           ...input,
           id: existing.id,
           externalId: existing.externalId,
           state: 'full',
-        });
+        };
         previous = existing;
       }
+      if (table === 'profiles' && previous?.state === 'stub')
+        record = { ...previous, ...record };
+      record = normalize(table, record);
       if (previous && previous.externalId !== record.externalId)
         throw new Error('External identity cannot be changed.');
       if (
@@ -410,6 +414,28 @@ export function createStore(
       return getState();
     });
   }
+  function writePhoto(photo, albumName) {
+    return transaction(() => {
+      const record = { ...photo };
+      if (!record.albumId) {
+        if (typeof albumName !== 'string' || !albumName.trim())
+          throw new Error('Enter an album name.');
+        let album = db
+          .prepare(
+            'SELECT * FROM albums WHERE ownerId=? AND name=? ORDER BY rowid LIMIT 1',
+          )
+          .get(record.ownerId, albumName.trim());
+        album ??= put('albums', {
+          ownerId: record.ownerId,
+          name: albumName.trim(),
+          coverMediaId: null,
+          createdAt: record.createdAt,
+        });
+        record.albumId = album.id;
+      }
+      return write('photos', record);
+    });
+  }
   function write(table, input) {
     return transaction(() => {
       checkTable(table);
@@ -511,6 +537,13 @@ export function createStore(
             db.exec(`DROP TABLE ${t}`);
           createSchema(db);
           if (legacy.profiles.length) replaceState(legacy);
+          else if (
+            Object.keys(legacySchema).some((t) => legacy[t].length) ||
+            legacy.settings.activeProfileId
+          )
+            throw new Error(
+              'Legacy records exist without a profile; repair the legacy world before migration.',
+            );
         });
       } catch (error) {
         throw new Error(
@@ -543,6 +576,7 @@ export function createStore(
     write,
     importState,
     createMedia,
+    writePhoto,
     resolveExternal,
     ensureProfileStub,
     hydrateProfile,

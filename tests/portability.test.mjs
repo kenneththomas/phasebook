@@ -288,6 +288,33 @@ test('failed legacy migration leaves original schema and data intact', (t) => {
   db.close();
   assert.deepEqual(readdirSync(join(dir, 'media')), []);
 });
+test('photo writes create owner-scoped albums atomically', (t) => {
+  const s = memory(t);
+  const media = s.createMedia({
+    sourceType: 'remote',
+    sourceLocation: 'https://example.com/test.png',
+  });
+  const input = {
+    ownerId: 'p1',
+    mediaId: media.id,
+    caption: 'New photo',
+    createdAt: '2026-09-07T12:00:00Z',
+    albumId: '',
+  };
+  const first = s.writePhoto(input, 'New album');
+  const second = s.writePhoto(input, 'New album');
+  const otherOwner = s.writePhoto({ ...input, ownerId: 'p2' }, 'New album');
+  assert.equal(first.albumId, second.albumId);
+  assert.notEqual(first.albumId, otherOwner.albumId);
+  assert.equal(s.get('albums', first.albumId).ownerId, 'p1');
+  const albumsBefore = s.getState().albums;
+  assert.throws(
+    () => s.writePhoto({ ...input, mediaId: 'missing' }, 'Rolled back album'),
+    /missing record/,
+  );
+  assert.deepEqual(s.getState().albums, albumsBefore);
+});
+
 test('HTTP media serving and stub hydration work through public endpoints', async (t) => {
   const s = memory(t),
     server = createApp(s).listen(0, '127.0.0.1');

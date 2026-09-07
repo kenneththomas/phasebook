@@ -18,11 +18,14 @@ test('main screens render through Vite SSR with seeded state', async () => {
     server: { middlewareMode: true, hmr: false, ws: false, watch: null },
   });
   try {
-    const [{ AppContext }, screens, { Feed }] = await Promise.all([
-      vite.ssrLoadModule('/app/context.tsx'),
-      vite.ssrLoadModule('/app/screens.tsx'),
-      vite.ssrLoadModule('/app/feed.tsx'),
-    ]);
+    const [{ AppContext }, screens, { Feed }, { Avatar }, { Editor }] =
+      await Promise.all([
+        vite.ssrLoadModule('/app/context.tsx'),
+        vite.ssrLoadModule('/app/screens.tsx'),
+        vite.ssrLoadModule('/app/feed.tsx'),
+        vite.ssrLoadModule('/app/shared.tsx'),
+        vite.ssrLoadModule('/app/dialogs.tsx'),
+      ]);
     const world = store.getState();
     const me = world.profiles.find((p) => p.id === 'p1');
     const value = {
@@ -66,6 +69,40 @@ test('main screens render through Vite SSR with seeded state', async () => {
     render(
       React.createElement(Feed, { posts: world.posts.slice(0, 2) }),
       'Midterms are officially over',
+    );
+    const stub = store.ensureProfileStub('render_stub');
+    const remote = store.createMedia({
+      sourceType: 'remote',
+      sourceLocation: 'https://example.com/portrait.png?size=200',
+    });
+    store.put('profiles', { ...stub, avatarMediaId: remote.id });
+    Object.assign(world, store.getState());
+    render(
+      React.createElement(screens.Profile, { id: stub.id }),
+      'Full profile data is unavailable.',
+    );
+    const portrait = render(
+      React.createElement(Avatar, {
+        person: world.profiles.find((p) => p.id === stub.id),
+      }),
+      remote.sourceLocation,
+    );
+    assert.match(portrait, /alt="Unknown profile"/);
+    const photo = store.getState().photos[0];
+    store.put('photos', { ...photo, mediaId: remote.id });
+    Object.assign(world, store.getState());
+    render(React.createElement(screens.Photos), remote.sourceLocation);
+    render(
+      React.createElement(Editor, { kind: 'profile', row: stub }),
+      'Existing relationships will be preserved.',
+    );
+    render(
+      React.createElement(Editor, { kind: 'photo', row: world.photos[0] }),
+      'External image URL',
+    );
+    render(
+      React.createElement(Editor, { kind: 'album', row: world.albums[0] }),
+      'Album name',
     );
   } finally {
     await vite.close();

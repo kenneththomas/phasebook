@@ -1,6 +1,14 @@
 import { useRef, useState } from 'react';
 import { Camera, Pencil, Globe, ThumbsUp } from 'lucide-react';
-import { Avatar, now, stamp, uid, type Row } from './shared';
+import {
+  mediaURL,
+  profileName,
+  Avatar,
+  now,
+  stamp,
+  uid,
+  type Row,
+} from './shared';
 import { useApp, PersonLink } from './context';
 
 export function Composer({
@@ -78,7 +86,7 @@ export function Composer({
               className={photoId === p.id ? 'picked' : ''}
               onClick={() => setPhotoId(photoId === p.id ? null : p.id)}
             >
-              <img src={p.src} alt={p.caption} />
+              <img src={mediaURL(world, p.mediaId)} alt={p.caption} />
             </button>
           ))}
           <button
@@ -121,7 +129,7 @@ export function Post({ post }: { post: Row }) {
       <button
         className="avatar-button"
         onClick={() => go('profile', post.authorId)}
-        aria-label={'View ' + person(post.authorId).name}
+        aria-label={'View ' + profileName(person(post.authorId))}
       >
         <Avatar person={person(post.authorId)} />
       </button>
@@ -150,7 +158,11 @@ export function Post({ post }: { post: Row }) {
             className="photo-open"
             onClick={() => open({ kind: 'viewPhoto', row: photo })}
           >
-            <img className="post-photo" src={photo.src} alt={photo.caption} />
+            <img
+              className="post-photo"
+              src={mediaURL(world, photo.mediaId)}
+              alt={photo.caption}
+            />
           </button>
         )}
         <div className="post-actions">
@@ -187,7 +199,9 @@ export function Post({ post }: { post: Row }) {
                 <span key={l.id}>
                   {i > 0 ? ' and ' : ''}
                   <PersonLink id={l.profileId}>
-                    {l.profileId === me.id ? 'You' : person(l.profileId).name}
+                    {l.profileId === me.id
+                      ? 'You'
+                      : profileName(person(l.profileId))}
                   </PersonLink>
                 </span>
               ))}

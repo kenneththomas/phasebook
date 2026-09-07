@@ -1117,6 +1117,22 @@ h1 {
 .confirm-dialog .dialog-actions {
   margin: 15px 0 0;
 }
+.media-editor {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid #d8dfea;
+}
+.media-editor legend {
+  font-weight: bold;
+  padding: 0 4px;
+}
+.admin-profiles {
+  margin-top: 12px;
+}
+.admin-profiles .button-row {
+  padding: 6px 0;
+  border-bottom: 1px solid #e9e9e9;
+}
 .avatar-editor {
   display: flex;
   gap: 15px;

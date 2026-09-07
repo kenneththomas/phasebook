@@ -19,6 +19,9 @@ import {
   SidebarMenuButton,
 } from '@/components/ui/sidebar';
 import {
+  mediaURL,
+  albumName,
+  profileName,
   Avatar,
   request,
   uid,
@@ -342,7 +345,7 @@ export default function App() {
                   Edit Profile
                 </button>
                 <button className="text-link" onClick={() => chat(viewed.id)}>
-                  Send {viewed.name.split(' ')[0]} a Message
+                  Send {profileName(viewed).split(' ')[0]} a Message
                 </button>
                 <p className="profile-quote">“{viewed.bio}”</p>
                 <h4>INFORMATION</h4>
@@ -358,7 +361,7 @@ export default function App() {
                     .map((p: Row) => (
                       <button key={p.id} onClick={() => go('profile', p.id)}>
                         <Avatar person={p} size={46} />
-                        <span>{p.name.split(' ')[0]}</span>
+                        <span>{profileName(p).split(' ')[0]}</span>
                       </button>
                     ))}
                 </div>
@@ -422,7 +425,7 @@ export default function App() {
                 onClick={() => chat(p.id)}
               >
                 <Avatar person={p} size={25} />
-                <span>{p.name}</span>
+                <span>{profileName(p)}</span>
                 <i className="online-dot" />
               </button>
             ))}
@@ -511,7 +514,10 @@ export default function App() {
                 >
                   <img
                     className="sidebar-photo"
-                    src={(world.photos[1] || world.photos[0]).src}
+                    src={mediaURL(
+                      world,
+                      (world.photos[1] || world.photos[0]).mediaId,
+                    )}
                     alt={(world.photos[1] || world.photos[0]).caption}
                   />
                 </button>
@@ -519,7 +525,11 @@ export default function App() {
                   {(world.photos[1] || world.photos[0]).caption}
                 </button>
                 <p className="muted">
-                  From {(world.photos[1] || world.photos[0]).album}
+                  From{' '}
+                  {albumName(
+                    world,
+                    (world.photos[1] || world.photos[0]).albumId,
+                  )}
                 </p>
               </>
             ) : (
@@ -574,7 +584,7 @@ export default function App() {
                   onClick={() => chat(p.id)}
                 >
                   <Avatar person={p} size={28} />
-                  {p.name}
+                  {profileName(p)}
                   <i className="online-dot" />
                 </button>
               ))}
@@ -624,11 +634,11 @@ function ChatWindow({
   return (
     <section
       className="chat-window"
-      aria-label={'Chat with ' + person(otherId).name}
+      aria-label={'Chat with ' + profileName(person(otherId))}
     >
       <div className="chat-heading">
         <i className="online-dot" />
-        {person(otherId).name}
+        {profileName(person(otherId))}
         <button aria-label="Close conversation" onClick={close}>
           <X size={14} />
         </button>
@@ -638,7 +648,7 @@ function ChatWindow({
           <div className="chat-message" key={m.id}>
             <Avatar person={person(m.senderId)} size={25} />
             <div>
-              <b>{person(m.senderId).name.split(' ')[0]}</b>
+              <b>{profileName(person(m.senderId)).split(' ')[0]}</b>
               <p>{m.body}</p>
               <span className="muted">{stamp(m.createdAt)}</span>
             </div>

@@ -148,10 +148,7 @@ export function validateRecord(table, row) {
       !(table === 'profiles' && row.state === 'stub' && field === 'name')
     )
       throw new Error(`${field} cannot be empty.`);
-    if (
-      ['id', 'externalId'].includes(field) &&
-      !/^[A-Za-z0-9_-]{1,200}$/.test(value)
-    )
+    if (field === 'externalId' && !/^[A-Za-z0-9_-]{1,200}$/.test(value))
       throw new Error(`Invalid ${field}.`);
     if (
       ['createdAt', 'startsAt'].includes(field) &&

@@ -76,6 +76,10 @@ export function createApp(store, middleware = null) {
         // Decode once so multi-byte names survive HTTP chunk boundaries.
         const body = Buffer.concat(chunks).toString('utf8');
         const value = body ? JSON.parse(body) : {};
+        if (req.method === 'POST' && url.pathname === '/api/photos/save') {
+          store.writePhoto(value.photo, value.albumName);
+          return json(200, store.getState());
+        }
         if (req.method === 'POST' && url.pathname === '/api/media')
           return json(201, store.createMedia(value));
         if (req.method === 'POST' && url.pathname === '/api/profiles/resolve')

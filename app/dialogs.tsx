@@ -12,26 +12,22 @@ import {
   AlertDialogDescription,
 } from '@/components/ui/alert-dialog';
 import { NativeSelect } from '@/components/ui/native-select';
-import { Avatar, emptyProfile, uid, now, type Row, type World } from './shared';
+import {
+  mediaURL,
+  albumName,
+  profileName,
+  Avatar,
+  emptyProfile,
+  uid,
+  now,
+  type Row,
+  type World,
+} from './shared';
 import { useApp, type ModalState } from './context';
+import { MediaEditor } from './media-editor';
 
-async function imageData(file: File): Promise<string> {
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type))
-    throw new Error('Choose a JPG, PNG, or WebP image.');
-  if (file.size > 3_000_000)
-    throw new Error('Choose an image smaller than 3 MB.');
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () =>
-      typeof reader.result === 'string'
-        ? resolve(reader.result)
-        : reject(new Error('The image could not be read.'));
-    reader.onerror = () => reject(new Error('The image could not be read.'));
-    reader.readAsDataURL(file);
-  });
-}
 export function Modal({ modal }: { modal: ModalState }) {
-  const { open } = useApp();
+  const { open, world } = useApp();
   if (!modal) return null;
   const titles: Record<string, string> = {
     switch: 'Log In · Choose a Profile',
@@ -39,7 +35,8 @@ export function Modal({ modal }: { modal: ModalState }) {
     manage: 'Manage this world',
     post: 'Edit Post',
     photo: 'Upload a Photo',
-    viewPhoto: modal.row?.album || 'Photo',
+    viewPhoto: modal.row ? albumName(world, modal.row.albumId) : 'Photo',
+    album: 'Edit Album',
     event: modal.row ? 'Edit Event' : 'Create an Event',
     group: modal.row ? 'Edit Group' : 'Create a Group',
     message: 'New Message',
@@ -105,8 +102,10 @@ function Switcher() {
           >
             <Avatar person={p} />
             <div>
-              <b>{p.name}</b>
-              <p className="muted">{p.city}</p>
+              <b>{profileName(p)}</b>
+              <p className="muted">
+                {p.state === 'stub' ? 'Stub profile' : p.city}
+              </p>
             </div>
             <span>{me.id === p.id ? 'Current profile' : 'Log In →'}</span>
           </button>
@@ -124,13 +123,18 @@ function Switcher() {
   );
 }
 function PhotoViewer({ row }: { row: Row }) {
-  const { person, open } = useApp();
+  const { world, person, open } = useApp();
   return (
     <>
-      <img className="full-photo" src={row.src} alt={row.caption} />
+      <img
+        className="full-photo"
+        src={mediaURL(world, row.mediaId)}
+        alt={row.caption}
+      />
       <p className="photo-caption">{row.caption}</p>
       <p className="muted">
-        Added by {person(row.ownerId).name} · {row.album}
+        Added by {profileName(person(row.ownerId))} ·{' '}
+        {albumName(world, row.albumId)}
       </p>
       <div className="dialog-actions">
         <button onClick={() => open({ kind: 'photo', row })}>Edit Photo</button>
@@ -149,12 +153,12 @@ function Manage() {
         throw new Error('Choose a JSON export smaller than 25 MB.');
       const value = JSON.parse(await file.text());
       if (
-        value.schemaVersion !== 1 ||
+        ![1, 2].includes(value.schemaVersion) ||
         !Array.isArray(value.profiles) ||
         !value.profiles.length
       )
         throw new Error(
-          'Choose a Phasebook JSON export with schemaVersion 1 and at least one profile.',
+          'Choose a Phasebook JSON export with schemaVersion 1 or 2 and at least one profile.',
         );
       setIncoming(value);
     } catch (e) {
@@ -249,6 +253,20 @@ function Manage() {
           Create Profile
         </button>
       </div>
+      <div className="admin-profiles">
+        {world.profiles.map((p) => (
+          <div key={p.id} className="button-row">
+            <button onClick={() => open({ kind: 'profile', row: p })}>
+              {profileName(p)}
+            </button>
+            <span className="muted">
+              {p.state === 'stub'
+                ? 'Stub · full data unavailable'
+                : 'Full profile'}
+            </span>
+          </div>
+        ))}
+      </div>
       <p className="form-help bottom-help">
         All people and activity are fictional. Everything is stored in SQLite on
         this computer. No login credentials or external services.
@@ -289,7 +307,7 @@ function Manage() {
     </>
   );
 }
-function Editor({
+export function Editor({
   kind,
   row,
   onSaved,
@@ -298,15 +316,15 @@ function Editor({
   row?: Row;
   onSaved?: (row: Row) => void;
 }) {
-  const { me, world, save, open, fail, busy, go } = useApp();
+  const { me, world, save, run, open, fail, busy, go } = useApp();
   const defaults: Record<string, Record<string, unknown>> = {
     profile: emptyProfile,
     post: { body: '' },
     photo: {
       ownerId: me.id,
-      album: 'My Photos',
+      albumId: '',
       caption: '',
-      src: '',
+      mediaId: null,
       createdAt: now(),
     },
     event: {
@@ -316,7 +334,13 @@ function Editor({
       location: '',
       startsAt: new Date().toISOString(),
     },
-    group: { name: '', description: '', category: 'Common Interest' },
+    group: {
+      creatorId: me.id,
+      name: '',
+      description: '',
+      category: 'Common Interest',
+    },
+    album: { ownerId: me.id, name: '', coverMediaId: null, createdAt: now() },
     message: {
       senderId: me.id,
       recipientId: world.profiles.find((p: Row) => p.id !== me.id)?.id || me.id,
@@ -328,10 +352,12 @@ function Editor({
   };
   const [form, setForm] = useState<Row>({
     id: uid(),
+    externalId: uid(),
     ...defaults[kind],
     ...row,
   });
   const [uploading, setUploading] = useState(false);
+  const [newAlbum, setNewAlbum] = useState('My Photos');
   const set = (key: string, value: unknown) =>
     setForm((f) => ({ ...f, [key]: value }));
   const fields: Record<string, string[][]> = {
@@ -347,10 +373,8 @@ function Editor({
       ['interests', 'Interests', 'area'],
     ],
     post: [['body', 'Post', 'area']],
-    photo: [
-      ['album', 'Album'],
-      ['caption', 'Caption'],
-    ],
+    photo: [['caption', 'Caption']],
+    album: [['name', 'Album name']],
     event: [
       ['title', 'Event Name'],
       ['description', 'Description', 'area'],
@@ -367,17 +391,6 @@ function Editor({
       ['body', 'Message', 'area'],
     ],
   };
-  const upload = async (file?: File) => {
-    if (!file) return;
-    setUploading(true);
-    try {
-      set(kind === 'profile' ? 'avatar' : 'src', await imageData(file));
-    } catch (e) {
-      fail((e as Error).message);
-    } finally {
-      setUploading(false);
-    }
-  };
   const dateLocal = (v: string) => {
     const d = new Date(v);
     if (!Number.isFinite(d.getTime())) return '';
@@ -393,52 +406,91 @@ function Editor({
           profile: 'profiles',
           post: 'posts',
           photo: 'photos',
+          album: 'albums',
           event: 'events',
           group: 'groups',
           message: 'messages',
         };
-        if (kind === 'photo' && !form.src) {
-          fail('Choose a photo to upload.');
+        if (kind === 'photo' && !form.mediaId) {
+          fail('Choose an uploaded image or an external image URL.');
           return;
         }
-        if (await save(table[kind], form)) {
+        const existing =
+          kind === 'profile'
+            ? world.profiles.find((p) => p.externalId === form.externalId)
+            : null;
+        const record =
+          existing?.state === 'stub' && !row
+            ? { ...form, id: existing.id }
+            : form;
+        const saved =
+          kind === 'photo'
+            ? await run('photos/save', { photo: record, albumName: newAlbum })
+            : await save(table[kind], record);
+        if (saved) {
           open(null);
-          if (kind === 'profile') go('profile', form.id);
-          if (onSaved) onSaved(form);
+          if (kind === 'profile') go('profile', record.id);
+          if (onSaved) onSaved(record);
           else if (kind === 'photo') go('photos');
         }
       }}
     >
       {kind === 'profile' && (
-        <div className="avatar-editor">
-          <Avatar person={form} size={80} />
-          <div>
-            <span>Profile Picture</span>
-            <div className="avatar-options">
-              {Array.from({ length: 6 }, (_, i) => (
-                <button
-                  type="button"
-                  aria-label={'Choose portrait ' + (i + 1)}
-                  className={
-                    form.avatar === `/assets/avatar-${i + 1}.jpg`
-                      ? 'picked'
-                      : ''
-                  }
-                  key={i}
-                  onClick={() => set('avatar', `/assets/avatar-${i + 1}.jpg`)}
-                >
-                  <img src={`/assets/avatar-${i + 1}.jpg`} alt="" />
-                </button>
-              ))}
-            </div>
+        <>
+          <label className="form-field">
+            Portable identity
             <input
-              aria-label="Upload profile picture"
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              onChange={(e) => upload(e.target.files?.[0])}
+              value={form.externalId}
+              readOnly={!!row}
+              required
+              onChange={(e) => set('externalId', e.target.value)}
             />
-          </div>
-        </div>
+          </label>
+          <label className="form-field" htmlFor="profile-state">
+            Profile data
+            <NativeSelect
+              id="profile-state"
+              value={form.state}
+              onChange={(e) => set('state', e.target.value)}
+            >
+              <option value="full">Full profile</option>
+              <option value="stub" disabled={row?.state === 'full'}>
+                Stub — full data unavailable
+              </option>
+            </NativeSelect>
+          </label>
+          {row?.state === 'stub' && (
+            <p className="form-help">
+              To complete this profile, enter its details and select Full
+              profile. Existing relationships will be preserved.
+            </p>
+          )}
+        </>
+      )}
+      {['profile', 'photo', 'album'].includes(kind) && (
+        <MediaEditor
+          id={
+            form[
+              kind === 'profile'
+                ? 'avatarMediaId'
+                : kind === 'album'
+                  ? 'coverMediaId'
+                  : 'mediaId'
+            ]
+          }
+          portraits={kind === 'profile'}
+          onBusy={setUploading}
+          onChange={(id) =>
+            set(
+              kind === 'profile'
+                ? 'avatarMediaId'
+                : kind === 'album'
+                  ? 'coverMediaId'
+                  : 'mediaId',
+              id,
+            )
+          }
+        />
       )}
       {kind === 'message' && (
         <label className="form-field">
@@ -451,28 +503,41 @@ function Editor({
               .filter((p: Row) => p.id !== me.id)
               .map((p: Row) => (
                 <option key={p.id} value={p.id}>
-                  {p.name}
+                  {profileName(p)}
                 </option>
               ))}
           </NativeSelect>
         </label>
       )}
       {kind === 'photo' && (
-        <label className="form-field">
-          Photo (JPG, PNG, or WebP, up to 3 MB)
-          <input
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            onChange={(e) => upload(e.target.files?.[0])}
-          />
-          {form.src && (
-            <img
-              className="upload-preview"
-              src={form.src}
-              alt="Upload preview"
-            />
+        <>
+          <label className="form-field">
+            Album
+            <NativeSelect
+              value={form.albumId}
+              onChange={(e) => set('albumId', e.target.value)}
+            >
+              <option value="">Create an album</option>
+              {world.albums
+                .filter((a) => a.ownerId === form.ownerId)
+                .map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+            </NativeSelect>
+          </label>
+          {!form.albumId && (
+            <label className="form-field">
+              New album name
+              <input
+                required
+                value={newAlbum}
+                onChange={(e) => setNewAlbum(e.target.value)}
+              />
+            </label>
           )}
-        </label>
+        </>
       )}
       {fields[kind]?.map(([key, label, type]) => (
         <label className="form-field" key={key}>
@@ -494,7 +559,10 @@ function Editor({
                   : (form[key] ?? '')
               }
               maxLength={20000}
-              required={['name', 'title', 'album', 'startsAt'].includes(key)}
+              required={
+                ['name', 'title', 'startsAt'].includes(key) &&
+                !(kind === 'profile' && form.state === 'stub' && key === 'name')
+              }
               onChange={(e) =>
                 set(
                   key,
