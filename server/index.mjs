@@ -45,7 +45,23 @@ export function createApp(store, middleware = null) {
               'Content-Disposition',
               'attachment; filename="phasebook.json"',
             );
-          return json(200, store.getState());
+          return json(
+            200,
+            url.pathname.endsWith('export')
+              ? store.exportState()
+              : store.getState(),
+          );
+        }
+        const mediaMatch = url.pathname.match(/^\/api\/media\/([^/]+)$/);
+        if (req.method === 'GET' && mediaMatch) {
+          const file = store.mediaFile(decodeURIComponent(mediaMatch[1]));
+          const bytes = await readFile(file.path);
+          res.writeHead(200, {
+            'Content-Type': file.mimeType,
+            'X-Content-Type-Options': 'nosniff',
+            'Cache-Control': 'no-cache',
+          });
+          return res.end(bytes);
         }
         if (!['POST', 'DELETE'].includes(req.method))
           return json(404, { error: 'Not found.' });
@@ -60,6 +76,18 @@ export function createApp(store, middleware = null) {
         // Decode once so multi-byte names survive HTTP chunk boundaries.
         const body = Buffer.concat(chunks).toString('utf8');
         const value = body ? JSON.parse(body) : {};
+        if (req.method === 'POST' && url.pathname === '/api/media')
+          return json(201, store.createMedia(value));
+        if (req.method === 'POST' && url.pathname === '/api/profiles/resolve')
+          return json(
+            200,
+            store.ensureProfileStub(value.externalId, value.name),
+          );
+        if (req.method === 'POST' && url.pathname === '/api/profiles/hydrate')
+          return json(
+            200,
+            store.hydrateProfile(value.externalId, value.profile),
+          );
         if (req.method === 'POST' && url.pathname === '/api/import')
           return json(200, store.importState(value));
         if (req.method === 'POST' && url.pathname === '/api/switch') {

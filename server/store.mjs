@@ -1,163 +1,311 @@
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import {
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  unlinkSync,
+  mkdtempSync,
+  rmSync,
+} from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
+import {
+  schema,
+  tables,
+  references,
+  profileDefaults,
+  validateRecord,
+  createSchema,
+} from './schema.mjs';
+import { schema as legacySchema } from './legacy-schema.mjs';
+import {
+  validateMedia,
+  storeUpload,
+  filePayload,
+  localPath,
+  remoteURL,
+} from './media.mjs';
+export { schema, tables, validateRecord } from './schema.mjs';
+export const newExternalId = () => randomUUID();
 
-// Every collection is a real SQLite table. References are enforced by SQLite.
-const text = 'TEXT NOT NULL';
-const ref = (table, nullable = false) =>
-  `TEXT ${nullable ? '' : 'NOT NULL'} REFERENCES ${table}(id) ON DELETE ${nullable ? 'SET NULL' : 'CASCADE'} DEFERRABLE INITIALLY DEFERRED`;
-export const schema = {
-  profiles: {
-    name: text,
-    bio: text,
-    city: text,
-    hometown: text,
-    education: text,
-    work: text,
-    birthday: text,
-    relationship: text,
-    interests: text,
-    avatar: text,
-  },
-  friendships: {
-    profileId: ref('profiles'),
-    friendId: ref('profiles'),
-    status: "TEXT NOT NULL CHECK(status IN ('accepted','pending'))",
-  },
-  groups: { name: text, description: text, category: text },
-  groupMembers: { groupId: ref('groups'), profileId: ref('profiles') },
-  photos: {
-    ownerId: ref('profiles'),
-    album: text,
-    caption: text,
-    src: text,
-    createdAt: text,
-  },
-  posts: {
-    authorId: ref('profiles'),
-    wallId: ref('profiles', true),
-    groupId: ref('groups', true),
-    body: text,
-    photoId: ref('photos', true),
-    createdAt: text,
-  },
-  comments: {
-    postId: ref('posts'),
-    authorId: ref('profiles'),
-    body: text,
-    createdAt: text,
-  },
-  likes: { postId: ref('posts'), profileId: ref('profiles') },
-  messages: {
-    senderId: ref('profiles'),
-    recipientId: ref('profiles'),
-    subject: text,
-    body: text,
-    createdAt: text,
-    read: 'INTEGER NOT NULL CHECK(read IN (0,1))',
-  },
-  notifications: {
-    profileId: ref('profiles'),
-    actorId: ref('profiles'),
-    body: text,
-    postId: ref('posts', true),
-    createdAt: text,
-    read: 'INTEGER NOT NULL CHECK(read IN (0,1))',
-  },
-  events: {
-    creatorId: ref('profiles'),
-    title: text,
-    description: text,
-    location: text,
-    startsAt: text,
-  },
-  eventGuests: {
-    eventId: ref('events'),
-    profileId: ref('profiles'),
-    status: "TEXT NOT NULL CHECK(status IN ('attending','maybe','declined'))",
-  },
-};
-export const tables = Object.keys(schema);
-export function validateRecord(table, row) {
-  if (!schema[table] || !row || typeof row !== 'object' || Array.isArray(row))
-    throw new Error('Unknown collection or invalid record.');
-  const fields = { id: text, ...schema[table] };
-  if (Object.keys(row).some((k) => !Object.hasOwn(fields, k)))
-    throw new Error(`Unknown field in ${table}.`);
-  for (const [field, sql] of Object.entries(fields)) {
-    const value = row[field];
-    if (value === null && !sql.includes('NOT NULL')) continue;
-    if (sql.startsWith('INTEGER')) {
-      if (![0, 1].includes(value)) throw new Error(`${field} must be 0 or 1.`);
-    } else if (
-      typeof value !== 'string' ||
-      value.length > (['src', 'avatar'].includes(field) ? 5_000_000 : 20000)
-    )
-      throw new Error(`Invalid ${table}.${field}.`);
-    if (
-      ['id', 'name', 'title', 'body'].includes(field) &&
-      typeof value === 'string' &&
-      !value.trim()
-    )
-      throw new Error(`${field} cannot be empty.`);
-    if (
-      ['createdAt', 'startsAt'].includes(field) &&
-      !Number.isFinite(Date.parse(value))
-    )
-      throw new Error(`${field} must be a date.`);
-    if (
-      ['avatar', 'src'].includes(field) &&
-      !(
-        /^\/assets\/[a-zA-Z0-9._-]+$/.test(value) ||
-        /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(value)
-      )
-    )
-      throw new Error(
-        'Images must be bundled assets or embedded PNG, JPEG, or WebP data.',
-      );
+export function assertUniqueIdentities(table, rows, requireExternal = true) {
+  const ids = new Set(),
+    externalIds = new Set();
+  for (const row of rows) {
+    if (!row || typeof row !== 'object')
+      throw new Error(`Invalid record in ${table}.`);
+    if (ids.has(row.id)) throw new Error(`Duplicate id in ${table}.`);
+    if (requireExternal && externalIds.has(row.externalId))
+      throw new Error(`Duplicate external id in ${table}.`);
+    ids.add(row.id);
+    externalIds.add(row.externalId);
   }
-  for (const field of ['avatar', 'src']) {
-    const value = row[field];
-    if (typeof value === 'string' && value.startsWith('/assets/')) {
-      if (
-        !/\.(jpg|jpeg|png|webp)$/i.test(value) ||
-        !existsSync(new URL('../public' + value, import.meta.url))
-      )
-        throw new Error('Bundled image does not exist: ' + value);
-    }
-  }
-  if (table === 'friendships' && row.profileId === row.friendId)
-    throw new Error('Choose two different profiles.');
 }
 export function createStore(
   filename = resolve('data/phasebook.sqlite'),
-  { seed = true } = {},
+  { seed = true, mediaDirectory } = {},
 ) {
   if (filename !== ':memory:')
     mkdirSync(dirname(filename), { recursive: true });
+  const ephemeralMedia = filename === ':memory:' && !mediaDirectory;
+  const mediaDir = mediaDirectory
+    ? resolve(mediaDirectory)
+    : ephemeralMedia
+      ? mkdtempSync(resolve(tmpdir(), 'phasebook-media-'))
+      : resolve(dirname(filename), 'media');
   const db = new DatabaseSync(filename);
   db.exec(
     'PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;',
   );
-  for (const [table, fields] of Object.entries(schema))
-    db.exec(
-      `CREATE TABLE IF NOT EXISTS ${table} (id TEXT PRIMARY KEY NOT NULL, ${Object.entries(
-        fields,
+  let inTransaction = false,
+    newFiles = [];
+  function transaction(action) {
+    if (inTransaction) return action();
+    db.exec('BEGIN IMMEDIATE; PRAGMA defer_foreign_keys=ON;');
+    inTransaction = true;
+    newFiles = [];
+    try {
+      const result = action();
+      if (db.prepare('PRAGMA foreign_key_check').all().length)
+        throw new Error('Reference to a missing record (FOREIGN KEY).');
+      db.exec('COMMIT');
+      return result;
+    } catch (error) {
+      db.exec('ROLLBACK');
+      for (const path of newFiles) unlinkSync(path);
+      throw error;
+    } finally {
+      inTransaction = false;
+      newFiles = [];
+    }
+  }
+  function checkTable(table) {
+    if (!Object.hasOwn(schema, table)) throw new Error('Unknown collection.');
+  }
+  function get(table, id) {
+    checkTable(table);
+    return db.prepare(`SELECT * FROM ${table} WHERE id=?`).get(id);
+  }
+  function resolveExternal(table, externalId) {
+    checkTable(table);
+    if (
+      typeof externalId !== 'string' ||
+      !/^[A-Za-z0-9_-]{1,200}$/.test(externalId)
+    )
+      throw new Error('Invalid externalId.');
+    return db
+      .prepare(`SELECT * FROM ${table} WHERE externalId=?`)
+      .get(externalId);
+  }
+  function rawPut(table, record) {
+    validateRecord(table, record);
+    if (table === 'media') validateMedia(record, mediaDir);
+    const fields = ['id', 'externalId', ...Object.keys(schema[table])];
+    db.prepare(
+      `INSERT INTO ${table} (${fields.join(',')}) VALUES (${fields.map(() => '?').join(',')}) ON CONFLICT(id) DO UPDATE SET ${fields
+        .slice(1)
+        .map((k) => `${k}=excluded.${k}`)
+        .join(',')}`,
+    ).run(...fields.map((k) => record[k]));
+    return record;
+  }
+  function createMedia(input) {
+    return transaction(() => {
+      const {
+        sourceType,
+        sourceLocation,
+        dataUrl,
+        originalFilename = null,
+        externalId = newExternalId(),
+      } = input;
+      if (
+        Object.keys(input).some(
+          (k) =>
+            ![
+              'sourceType',
+              'sourceLocation',
+              'dataUrl',
+              'originalFilename',
+              'externalId',
+            ].includes(k),
+        )
       )
-        .map(([k, v]) => `${k} ${v}`)
-        .join(',')})`,
+        throw new Error('Unknown media input field.');
+      if (
+        originalFilename !== null &&
+        (typeof originalFilename !== 'string' || originalFilename.length > 255)
+      )
+        throw new Error('Invalid original filename.');
+      const row = {
+        id: randomUUID(),
+        externalId,
+        kind: 'image',
+        sourceType,
+        sourceLocation:
+          sourceType === 'remote' ? remoteURL(sourceLocation) : sourceLocation,
+        mimeType: null,
+        originalFilename,
+        width: null,
+        height: null,
+        createdAt: new Date().toISOString(),
+        cachedLocalPath: null,
+        metadata: '{}',
+      };
+      if (sourceType === 'local')
+        Object.assign(
+          row,
+          storeUpload(mediaDir, dataUrl, (path) => newFiles.push(path)),
+        );
+      else if (dataUrl !== undefined)
+        throw new Error('Only local uploads accept image data.');
+      return rawPut('media', row);
+    });
+  }
+  // Only the v1 input adapter accepts old image/album strings. Storage is v2.
+  function legacyMedia(source) {
+    if (typeof source !== 'string') throw new Error('Invalid legacy image.');
+    if (source.startsWith('data:'))
+      return createMedia({ sourceType: 'local', dataUrl: source }).id;
+    const sourceType = source.startsWith('/assets/') ? 'bundled' : 'remote';
+    const existing = db
+      .prepare('SELECT id FROM media WHERE sourceType=? AND sourceLocation=?')
+      .get(sourceType, source);
+    return (
+      existing?.id ?? createMedia({ sourceType, sourceLocation: source }).id
     );
-  db.exec(`CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK(id=1), activeProfileId TEXT NOT NULL REFERENCES profiles(id) DEFERRABLE INITIALLY DEFERRED);
-    CREATE UNIQUE INDEX IF NOT EXISTS friendship_pair ON friendships(min(profileId,friendId),max(profileId,friendId));
-    CREATE UNIQUE INDEX IF NOT EXISTS like_pair ON likes(postId,profileId);
-    CREATE UNIQUE INDEX IF NOT EXISTS member_pair ON groupMembers(groupId,profileId);
-    CREATE UNIQUE INDEX IF NOT EXISTS guest_pair ON eventGuests(eventId,profileId);
-    CREATE INDEX IF NOT EXISTS idx_posts_author ON posts(authorId,createdAt);
-    CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(postId);
-    PRAGMA user_version=1;`);
+  }
+  function normalize(table, input) {
+    const row = { ...input };
+    if (table === 'profiles') {
+      if (Object.hasOwn(row, 'avatar')) {
+        row.avatarMediaId = legacyMedia(row.avatar);
+        delete row.avatar;
+      }
+      return { ...profileDefaults, state: 'full', ...row };
+    }
+    if (table === 'groups') return { creatorId: null, ...row };
+    if (table === 'photos') {
+      if (Object.hasOwn(row, 'src')) {
+        row.mediaId = legacyMedia(row.src);
+        delete row.src;
+      }
+      if (Object.hasOwn(row, 'album')) {
+        let album = db
+          .prepare(
+            'SELECT * FROM albums WHERE ownerId=? AND name=? ORDER BY rowid LIMIT 1',
+          )
+          .get(row.ownerId, row.album);
+        album ??= rawPut('albums', {
+          id: randomUUID(),
+          externalId: newExternalId(),
+          ownerId: row.ownerId,
+          name: row.album,
+          coverMediaId: null,
+          createdAt: row.createdAt,
+        });
+        row.albumId = album.id;
+        delete row.album;
+      }
+    }
+    return row;
+  }
+  function put(table, input) {
+    return transaction(() => {
+      checkTable(table);
+      let record = normalize(table, input);
+      record.id ??= randomUUID();
+      let previous = get(table, record.id);
+      record.externalId ??= previous?.externalId ?? newExternalId();
+      const existing = resolveExternal(table, record.externalId);
+      if (existing && existing.id !== record.id) {
+        if (
+          table !== 'profiles' ||
+          existing.state !== 'stub' ||
+          record.state !== 'full' ||
+          previous
+        )
+          throw new Error(`Duplicate external id in ${table}.`);
+        record = normalize(table, {
+          ...existing,
+          ...input,
+          id: existing.id,
+          externalId: existing.externalId,
+          state: 'full',
+        });
+        previous = existing;
+      }
+      if (previous && previous.externalId !== record.externalId)
+        throw new Error('External identity cannot be changed.');
+      if (
+        table === 'profiles' &&
+        previous?.state === 'full' &&
+        record.state === 'stub'
+      )
+        throw new Error('A full profile cannot be downgraded to a stub.');
+      return rawPut(table, record);
+    });
+  }
+  function ensureProfileStub(externalId, name = '') {
+    return transaction(
+      () =>
+        resolveExternal('profiles', externalId) ??
+        put('profiles', {
+          ...profileDefaults,
+          id: randomUUID(),
+          externalId,
+          state: 'stub',
+          name,
+        }),
+    );
+  }
+  function hydrateProfile(externalId, data) {
+    return transaction(() => {
+      const existing = resolveExternal('profiles', externalId);
+      if (!data || typeof data !== 'object' || Array.isArray(data))
+        throw new Error('Invalid profile data.');
+      if (
+        (data.id && existing && data.id !== existing.id) ||
+        (data.externalId && data.externalId !== externalId)
+      )
+        throw new Error('Hydration identity mismatch.');
+      return put('profiles', {
+        ...profileDefaults,
+        ...existing,
+        ...data,
+        id: existing?.id ?? data.id ?? randomUUID(),
+        externalId,
+        state: 'full',
+      });
+    });
+  }
+  // Input reference fields contain external IDs; only local IDs reach SQLite.
+  function putExternal(table, input) {
+    return transaction(() => {
+      checkTable(table);
+      if (Object.hasOwn(input, 'id'))
+        throw new Error('Portable input must not contain a local id.');
+      const existing = resolveExternal(table, input.externalId);
+      const record = {
+        ...existing,
+        ...input,
+        id: existing?.id ?? randomUUID(),
+      };
+      for (const [field, target] of Object.entries(references[table])) {
+        if (!Object.hasOwn(input, field) || input[field] === null) continue;
+        const resolved =
+          target === 'profiles'
+            ? ensureProfileStub(input[field])
+            : resolveExternal(target, input[field]);
+        if (!resolved)
+          throw new Error(`Unresolved ${target} external id: ${input[field]}`);
+        record[field] = resolved.id;
+      }
+      return put(table, record);
+    });
+  }
   const getState = () => ({
-    schemaVersion: 1,
+    schemaVersion: 2,
     settings:
       db.prepare('SELECT activeProfileId FROM settings WHERE id=1').get() ?? {},
     ...Object.fromEntries(
@@ -167,35 +315,112 @@ export function createStore(
       ]),
     ),
   });
-  function put(table, record) {
-    validateRecord(table, record);
-    const fields = ['id', ...Object.keys(schema[table])];
-    db.prepare(
-      `INSERT INTO ${table} (${fields.join(',')}) VALUES (${fields.map(() => '?').join(',')}) ON CONFLICT(id) DO UPDATE SET ${fields
-        .slice(1)
-        .map((k) => `${k}=excluded.${k}`)
-        .join(',')}`,
-    ).run(...fields.map((k) => record[k]));
-    return record;
+  function exportState() {
+    const state = getState();
+    const local = state.media.filter((m) => m.sourceType === 'local');
+    if (local.length)
+      state.mediaFiles = Object.fromEntries(
+        local.map((m) => [m.externalId, filePayload(mediaDir, m)]),
+      );
+    state.media = state.media.map((m) => ({ ...m, cachedLocalPath: null }));
+    return state;
   }
-  // Social actions and their derived notifications commit together. Bulk JSON
-  // import uses put() directly to preserve the export exactly.
-  function write(table, record) {
-    validateRecord(table, record);
-    const previous = db
-      .prepare(`SELECT * FROM ${table} WHERE id=?`)
-      .get(record.id);
-    db.exec('BEGIN');
-    try {
-      put(table, record);
+  function replaceState(value) {
+    if (
+      !value ||
+      ![1, 2].includes(value.schemaVersion) ||
+      typeof value.settings?.activeProfileId !== 'string'
+    )
+      throw new Error('Expected a Phasebook schemaVersion 1 or 2 export.');
+    const collections =
+      value.schemaVersion === 1 ? Object.keys(legacySchema) : tables;
+    if (
+      !collections.every((t) => Array.isArray(value[t])) ||
+      !value.profiles.length
+    )
+      throw new Error(
+        'Export must contain every collection and at least one profile.',
+      );
+    for (const t of collections) {
+      if (value[t].length > 20000)
+        throw new Error('Collection exceeds 20,000 records.');
+      assertUniqueIdentities(t, value[t], value.schemaVersion === 2);
+      if (value.schemaVersion === 2)
+        for (const row of value[t]) validateRecord(t, row);
+    }
+    db.exec('DELETE FROM settings');
+    for (const t of [...tables].reverse()) db.exec(`DELETE FROM ${t}`);
+    if (value.schemaVersion === 1) {
+      for (const t of collections) for (const row of value[t]) put(t, row);
+    } else {
+      if (
+        value.mediaFiles !== undefined &&
+        (!value.mediaFiles ||
+          typeof value.mediaFiles !== 'object' ||
+          Array.isArray(value.mediaFiles))
+      )
+        throw new Error('Invalid mediaFiles payload.');
+      const fileIds = new Set(
+        value.media
+          .filter((m) => m.sourceType === 'local')
+          .map((m) => m.externalId),
+      );
+      if (Object.keys(value.mediaFiles ?? {}).some((id) => !fileIds.has(id)))
+        throw new Error('Media payload has no matching local record.');
+      for (const t of tables)
+        for (const source of value[t]) {
+          const row = { ...source };
+          if (t === 'media') {
+            row.cachedLocalPath = null;
+            if (
+              row.sourceType === 'local' &&
+              Object.hasOwn(value.mediaFiles ?? {}, row.externalId)
+            )
+              Object.assign(
+                row,
+                storeUpload(
+                  mediaDir,
+                  value.mediaFiles[row.externalId],
+                  (path) => newFiles.push(path),
+                ),
+              );
+          }
+          rawPut(t, row);
+        }
+    }
+    db.prepare('INSERT INTO settings VALUES (1,?)').run(
+      value.settings.activeProfileId,
+    );
+  }
+  function importState(value, backup = true) {
+    const before = backup ? exportState() : null;
+    return transaction(() => {
+      replaceState(value);
+      if (db.prepare('PRAGMA foreign_key_check').all().length)
+        throw new Error('Import contains a reference to a missing record.');
+      if (backup && filename !== ':memory:')
+        writeFileSync(
+          resolve(
+            dirname(filename),
+            `backup-${Date.now()}-${randomUUID().slice(0, 8)}.json`,
+          ),
+          JSON.stringify(before, null, 2),
+          { flag: 'wx' },
+        );
+      return getState();
+    });
+  }
+  function write(table, input) {
+    return transaction(() => {
+      checkTable(table);
+      const previous = input.id ? get(table, input.id) : undefined;
+      const record = put(table, input);
       let recipient,
         actor,
         body,
         postId = null;
       if (!previous && ['comments', 'likes'].includes(table)) {
-        const post = db
-          .prepare('SELECT * FROM posts WHERE id=?')
-          .get(record.postId);
+        const post = get('posts', record.postId);
         if (post) {
           recipient = post.authorId;
           actor = record.authorId || record.profileId;
@@ -231,90 +456,108 @@ export function createStore(
         body = 'accepted your friend request.';
       }
       if (recipient && actor && recipient !== actor) {
-        const profile = db
-          .prepare('SELECT name FROM profiles WHERE id=?')
-          .get(actor);
+        const profile = get('profiles', actor);
         if (profile)
           put('notifications', {
             id: randomUUID(),
             profileId: recipient,
             actorId: actor,
-            body: profile.name + ' ' + body,
+            body: (profile.name || 'Unknown profile') + ' ' + body,
             postId,
             createdAt: new Date().toISOString(),
             read: 0,
           });
       }
-      db.exec('COMMIT');
       return record;
-    } catch (error) {
-      db.exec('ROLLBACK');
-      throw error;
-    }
+    });
   }
-  function importState(value, backup = true) {
-    if (
-      !value ||
-      value.schemaVersion !== 1 ||
-      !value.settings ||
-      typeof value.settings.activeProfileId !== 'string'
-    )
-      throw new Error('Expected a Phasebook schemaVersion 1 export.');
-    if (!tables.every((t) => Array.isArray(value[t])) || !value.profiles.length)
+  try {
+    const version = db.prepare('PRAGMA user_version').get().user_version;
+    const hasProfiles = db
+      .prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='profiles'",
+      )
+      .get();
+    if (version > 2)
       throw new Error(
-        'Export must contain every collection and at least one profile.',
+        'This database was created by a newer Phasebook version.',
       );
-    for (const t of tables) {
-      if (value[t].length > 20000)
-        throw new Error('Collection exceeds 20,000 records.');
-      const ids = new Set();
-      for (const row of value[t]) {
-        validateRecord(t, row);
-        if (ids.has(row.id)) throw new Error(`Duplicate id in ${t}.`);
-        ids.add(row.id);
-      }
-    }
-    const before = getState();
-    db.exec('BEGIN; PRAGMA defer_foreign_keys=ON;');
-    try {
-      db.exec('DELETE FROM settings');
-      for (const t of [...tables].reverse()) db.exec(`DELETE FROM ${t}`);
-      for (const t of tables) for (const row of value[t]) put(t, row);
-      db.prepare('INSERT INTO settings VALUES (1,?)').run(
-        value.settings.activeProfileId,
-      );
-      if (db.prepare('PRAGMA foreign_key_check').all().length)
-        throw new Error('Import contains a reference to a missing record.');
-      if (backup && filename !== ':memory:')
-        writeFileSync(
+    if (!hasProfiles) transaction(() => createSchema(db));
+    else if (version < 2) {
+      const legacy = {
+        schemaVersion: 1,
+        settings:
+          db.prepare('SELECT activeProfileId FROM settings WHERE id=1').get() ??
+          {},
+        ...Object.fromEntries(
+          Object.keys(legacySchema).map((t) => [
+            t,
+            db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all(),
+          ]),
+        ),
+      };
+      if (filename !== ':memory:')
+        db.prepare('VACUUM INTO ?').run(
           resolve(
             dirname(filename),
-            `backup-${Date.now()}-${randomUUID().slice(0, 8)}.json`,
+            `migration-v1-${Date.now()}-${randomUUID().slice(0, 8)}.sqlite`,
           ),
-          JSON.stringify(before, null, 2),
         );
-      db.exec('COMMIT');
-    } catch (error) {
-      db.exec('ROLLBACK');
-      throw error;
+      db.exec('PRAGMA foreign_keys=OFF');
+      try {
+        transaction(() => {
+          db.exec('DROP TABLE settings');
+          for (const t of Object.keys(legacySchema).reverse())
+            db.exec(`DROP TABLE ${t}`);
+          createSchema(db);
+          if (legacy.profiles.length) replaceState(legacy);
+        });
+      } catch (error) {
+        throw new Error(
+          `Migration to v2 failed; the original database is unchanged: ${error.message}`,
+          { cause: error },
+        );
+      } finally {
+        db.exec('PRAGMA foreign_keys=ON');
+      }
     }
-    return getState();
+    if (seed && !db.prepare('SELECT 1 FROM settings').get())
+      importState(
+        JSON.parse(
+          readFileSync(new URL('../db/seed.json', import.meta.url), 'utf8'),
+        ),
+        false,
+      );
+  } catch (error) {
+    db.close();
+    if (ephemeralMedia) rmSync(mediaDir, { recursive: true, force: true });
+    throw error;
   }
-  if (seed && !db.prepare('SELECT 1 FROM settings').get())
-    importState(
-      JSON.parse(
-        readFileSync(new URL('../db/seed.json', import.meta.url), 'utf8'),
-      ),
-      false,
-    );
   return {
     db,
+    mediaDir,
+    get,
     getState,
+    exportState,
     put,
     write,
     importState,
+    createMedia,
+    resolveExternal,
+    ensureProfileStub,
+    hydrateProfile,
+    putExternal,
+    mediaFile(id) {
+      const row = get('media', id);
+      if (!row || row.sourceType !== 'local')
+        throw new Error('Local media not found.');
+      return {
+        path: localPath(mediaDir, row.sourceLocation),
+        mimeType: row.mimeType,
+      };
+    },
     remove(table, id) {
-      if (!schema[table]) throw new Error('Unknown collection.');
+      checkTable(table);
       if (table === 'profiles')
         throw new Error(
           'Profile deletion is not supported; edit the profile instead.',
@@ -322,16 +565,13 @@ export function createStore(
       db.prepare(`DELETE FROM ${table} WHERE id=?`).run(id);
     },
     switchProfile(id) {
-      if (!db.prepare('SELECT 1 FROM profiles WHERE id=?').get(id))
-        throw new Error('Profile not found.');
+      if (!get('profiles', id)) throw new Error('Profile not found.');
       db.prepare('UPDATE settings SET activeProfileId=? WHERE id=1').run(id);
     },
     markConversationRead(profileId, otherId) {
       if (
         ![profileId, otherId].every(
-          (id) =>
-            typeof id === 'string' &&
-            db.prepare('SELECT 1 FROM profiles WHERE id=?').get(id),
+          (id) => typeof id === 'string' && get('profiles', id),
         )
       )
         throw new Error('Profile not found.');
@@ -341,6 +581,7 @@ export function createStore(
     },
     close() {
       db.close();
+      if (ephemeralMedia) rmSync(mediaDir, { recursive: true, force: true });
     },
   };
 }

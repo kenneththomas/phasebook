@@ -95,7 +95,7 @@ test('createStore default seeding loads the bundled seed file', async () => {
   const ctx = await tempStore(true);
   try {
     const state = ctx.store.getState();
-    assert.equal(state.schemaVersion, 1);
+    assert.equal(state.schemaVersion, 2);
     assert.equal(state.settings.activeProfileId, 'p1');
     assert.equal(state.profiles.length, 8);
     assert.equal(state.posts.length, 12);
@@ -404,7 +404,7 @@ test('successful imports create an exact backup and invalid imports do not', asy
       JSON.parse(JSON.stringify(before)),
     );
     const invalid = structuredClone(replacement);
-    invalid.schemaVersion = 2;
+    invalid.schemaVersion = 99;
     assert.throws(() => ctx.store.importState(invalid, true), /schemaVersion/);
     const filesAfterInvalid = (await readdir(ctx.dir)).filter(
       (name) => name.startsWith('backup-') && name.endsWith('.json'),
@@ -415,13 +415,16 @@ test('successful imports create an exact backup and invalid imports do not', asy
   }
 });
 
-test('image validation accepts bundled assets and rejects missing or remote images', async () => {
+test('legacy image inputs migrate to media foreign keys', async () => {
   const ctx = await tempStore();
   try {
     ctx.store.put('profiles', {
       ...profile('p10'),
-      avatar: '/assets/avatar-2.jpg',
+      avatar: 'https://example.com/avatar.jpg',
     });
+    const p = ctx.store.get('profiles', 'p10');
+    assert.equal(p.avatar, undefined);
+    assert.equal(ctx.store.get('media', p.avatarMediaId).sourceType, 'remote');
     assert.throws(
       () =>
         ctx.store.put('profiles', {
@@ -429,26 +432,6 @@ test('image validation accepts bundled assets and rejects missing or remote imag
           avatar: '/assets/no-such-avatar.jpg',
         }),
       /Bundled image does not exist/,
-    );
-    assert.throws(
-      () =>
-        ctx.store.put('profiles', {
-          ...profile('p12'),
-          avatar: 'https://example.com/avatar.jpg',
-        }),
-      /Images must be bundled/,
-    );
-    assert.throws(
-      () =>
-        ctx.store.put('photos', {
-          id: 'remote-photo',
-          ownerId: 'p1',
-          album: 'x',
-          caption: 'x',
-          src: 'https://example.com/photo.jpg',
-          createdAt: '2010-03-18T10:00:00Z',
-        }),
-      /Images must be bundled/,
     );
   } finally {
     await closeAndRemove(ctx);

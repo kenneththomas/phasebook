@@ -73,7 +73,7 @@ test('HTTP API exposes state and export with expected headers', async () => {
   try {
     const state = await request(ctx.base, '/api/state');
     assert.equal(state.status, 200);
-    assert.equal((await state.json()).schemaVersion, 1);
+    assert.equal((await state.json()).schemaVersion, 2);
     const exported = await request(ctx.base, '/api/export');
     assert.equal(exported.status, 200);
     assert.match(
