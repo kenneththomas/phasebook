@@ -2,7 +2,7 @@
 
 A local-only desktop social simulation inspired by **Facebook in March 2010**. A centered blue header, three-column News Feed, classic profile tabs, flat comments, photo albums, and bottom-bar chat.
 
-All people, relationships and activity are synthetic. There is no authentication, password, permission model, remote account, cloud database or external API. The browser only talks to the Node server on this computer; there is no real social networking. Seed imagery and fonts are bundled/local.
+All people, relationships and activity are synthetic. There is no authentication, password, permission model, remote account, cloud database or external API. Social data stays in the Node server on this computer; there is no real social networking. Seed imagery and fonts are bundled/local. Optional external images load directly from their source URLs.
 
 ## Run
 
@@ -14,7 +14,7 @@ npm run build
 npm start
 ```
 
-Open **http://127.0.0.1:5173**. The server binds only to the loopback address. After dependencies are installed, the application works without internet access. Stop it with Ctrl+C.
+Open **http://127.0.0.1:5173**. The server binds only to the loopback address. After dependencies are installed, the application works without internet access; optional remote images require their source to be reachable. Stop it with Ctrl+C.
 
 For development:
 
@@ -27,10 +27,10 @@ The same local URL serves Vite's development interface. Refresh after frontend e
 ## Using your world
 
 - **Log In** switches to any synthetic profile, with no password. The active profile is saved in the database.
-- **Edit My Profile**, **Edit Profile**, or **Friends → Create Profile** lets you edit anyone or add someone. You can upload an avatar or select a bundled portrait.
+- **Edit My Profile**, **Edit Profile**, or **Friends → Create Profile** lets you edit anyone or add someone. You can upload an avatar, attach an external image URL, or select a bundled portrait. Manage this world lists full and stub profiles; edit a stub and select Full profile to complete it in place.
 - Share posts on the feed, another person's Wall, or a group Wall. Like/unlike and add flat comments. The pencil beside a post edits it regardless of its author.
 - **Friends** lets you add/remove relationships and send and confirm requests.
-- **Photos** contains albums; upload a local JPG, PNG or WebP (up to 3 MB), edit its caption, or attach it to a post.
+- **Photos** contains albums; upload a local JPG, PNG or WebP (up to 3 MB) or use an external image URL, edit its caption, or attach it to a post. Albums have owners and editable names and cover images.
 - **Events** supports creation, editing and Attending/Maybe/Not Attending replies.
 - **Groups** supports creation, editing, membership and group posts.
 - **Messages** and the bottom **Chat** bar save conversations locally. Switch profiles to write the other side of a conversation. Online indicators are simulated, and there are no automatic real-user replies.
@@ -43,11 +43,15 @@ The app creates **`data/phasebook.sqlite`** on first launch and seeds it from **
 
 Open **Account** or **Manage this world**:
 
-1. **Export JSON** downloads the complete world, including relationships, the active profile and embedded uploaded images.
+1. **Export JSON** downloads the complete world, including relationships, the active profile and a separate media payload for uploaded images.
 2. Choose a JSON file under **Import a world** and review the record counts.
 3. **Replace World** validates the complete export and all referenced records in a transaction. Invalid imports leave existing data unchanged. A successful import first writes `data/backup-<timestamp>-<id>.json` containing the previous world.
 
-JSON format is versioned with `schemaVersion: 1`. Every collection is required; IDs are strings and relationships refer to those IDs. See `db/seed.json` for a full example and `server/store.mjs` for exact field definitions. Imports are limited to 25 MB and 20,000 records per collection. Image values must be bundled `/assets/...` paths or embedded PNG/JPEG/WebP data URLs; remote images are intentionally rejected. Bundled-image references travel with the repository, while uploaded images travel inside JSON.
+JSON exports now use `schemaVersion: 2`; v1 worlds remain importable. Every domain record has a stable `externalId`, while local IDs remain the relational keys. Profiles may be full or stubs. Media records distinguish local uploads, remote HTTP(S) images and bundled assets. Uploaded files live under `data/media/`, never in social records or frontend source. The existing full-world format retains local references; future per-entity formats will use external identities.
+
+Existing SQLite databases are automatically migrated on startup, with a `migration-v1-*.sqlite` backup written first. Local IDs and relationships are preserved. Embedded images are converted to files; invalid legacy media stops migration with an error instead of being dropped. Imports remain limited to 25 MB and 20,000 records per collection.
+
+See [the data model and migration guide](docs/data-model.md) for the entity overview, ownership rules, stub hydration, shared resolution services, media storage, backup format and current limitations.
 
 To start an independent world in another database file, set `PHASEBOOK_DB` before starting. For example, in PowerShell:
 
@@ -56,12 +60,14 @@ $env:PHASEBOOK_DB = 'data/another-world.sqlite'
 npm start
 ```
 
-`PORT` optionally changes the default 5173 port. `data/`, database journals, dependencies and build output are ignored by Git. Back up with JSON while the server is running; if copying SQLite directly, stop the server first so its journal has been flushed.
+`PORT` optionally changes the default 5173 port. `data/`, database journals, dependencies and build output are ignored by Git. Back up with JSON while the server is running; if copying SQLite directly, stop the server first and copy its media directory too.
 
 ## Structure and checks
 
 - `app/` — React interface, shared state, period CSS, screens and dialogs.
-- `server/store.mjs` — SQLite schema, record validation and transactional import/export.
+- `server/schema.mjs` — relational schema, constraints and reference definitions.
+- `server/store.mjs` — migrations, external identity resolution, stub hydration, social writes and import/export.
+- `server/media.mjs` — source validation and managed file storage.
 - `server/index.mjs` — loopback HTTP server and local persistence endpoints.
 - `db/seed.json` — editable, synthetic starter world.
 - `public/assets/` — bundled fictional portraits and album images.
