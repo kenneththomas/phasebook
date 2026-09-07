@@ -942,6 +942,7 @@ h1 {
 }
 .calendar.large {
   width: 50px;
+  align-self: flex-start;
 }
 .calendar.large span {
   font-size: 10px;
