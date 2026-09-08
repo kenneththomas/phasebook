@@ -1105,6 +1105,19 @@ h1 {
   padding: 4px 0;
   font-size: 11px;
 }
+.form-field input[type='file']::file-selector-button {
+  border: 1px solid #29447e;
+  background: #3b5998;
+  color: white;
+  padding: 4px 8px;
+  margin-right: 8px;
+  font: inherit;
+  font-weight: bold;
+  cursor: pointer;
+}
+.form-field input[type='file']::file-selector-button:hover {
+  background: #29447e;
+}
 .dialog-actions {
   border-top: 1px solid #ddd;
   background: #f2f2f2;
