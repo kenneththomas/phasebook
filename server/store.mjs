@@ -414,7 +414,7 @@ export function createStore(
       return getState();
     });
   }
-  function writePhoto(photo, albumName) {
+  function writePhotoResult(photo, albumName) {
     return transaction(() => {
       const record = { ...photo };
       if (!record.albumId) {
@@ -433,10 +433,14 @@ export function createStore(
         });
         record.albumId = album.id;
       }
-      return write('photos', record);
+      const result = writeResult('photos', record);
+      return { ...result, album: get('albums', result.record.albumId) };
     });
   }
-  function write(table, input) {
+  function writePhoto(photo, albumName) {
+    return writePhotoResult(photo, albumName).record;
+  }
+  function writeResult(table, input) {
     return transaction(() => {
       checkTable(table);
       const previous = input.id ? get(table, input.id) : undefined;
@@ -481,10 +485,11 @@ export function createStore(
         actor = record.friendId;
         body = 'accepted your friend request.';
       }
+      let notification = null;
       if (recipient && actor && recipient !== actor) {
         const profile = get('profiles', actor);
         if (profile)
-          put('notifications', {
+          notification = put('notifications', {
             id: randomUUID(),
             profileId: recipient,
             actorId: actor,
@@ -494,8 +499,11 @@ export function createStore(
             read: 0,
           });
       }
-      return record;
+      return { record, notification };
     });
+  }
+  function write(table, input) {
+    return writeResult(table, input).record;
   }
   try {
     const version = db.prepare('PRAGMA user_version').get().user_version;
@@ -574,9 +582,11 @@ export function createStore(
     exportState,
     put,
     write,
+    writeResult,
     importState,
     createMedia,
     writePhoto,
+    writePhotoResult,
     resolveExternal,
     ensureProfileStub,
     hydrateProfile,
@@ -609,9 +619,15 @@ export function createStore(
         )
       )
         throw new Error('Profile not found.');
+      const unread = db
+        .prepare(
+          'SELECT * FROM messages WHERE recipientId=? AND senderId=? AND read=0',
+        )
+        .all(profileId, otherId);
       db.prepare(
         'UPDATE messages SET read=1 WHERE recipientId=? AND senderId=?',
       ).run(profileId, otherId);
+      return unread.map((message) => ({ ...message, read: 1 }));
     },
     close() {
       db.close();

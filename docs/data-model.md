@@ -110,7 +110,10 @@ store.hydrateProfile('usr_bob', { name: 'Bob', city: 'Boston' });
 HTTP endpoints expose media creation (`POST /api/media`), stub resolution
 (`POST /api/profiles/resolve`, `{externalId, name?}`), and hydration
 (`POST /api/profiles/hydrate`, `{externalId, profile}`). These return the resolved
-record. Standard record writes and `/api/photos/save` return the updated world.
+record. Standard record writes and `/api/photos/save` return compact changes with
+only upserted or deleted records. Profile switching returns only updated settings,
+and conversation reads return only messages whose read state changed. The client
+merges these changes into its cached world; imports still return a complete world.
 No per-profile export product or partial-world import endpoint is implemented yet.
 
 ## Media and storage

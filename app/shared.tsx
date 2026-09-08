@@ -24,6 +24,127 @@ export type World = Record<CollectionName, Row[]> & {
   settings: { activeProfileId: string };
   error?: string;
 };
+export type MutationResult = {
+  upserts: Partial<Record<CollectionName, Row[]>>;
+  deletes: Partial<Record<CollectionName, string[]>>;
+  settings?: World['settings'];
+};
+
+const collections: CollectionName[] = [
+  'profiles',
+  'friendships',
+  'posts',
+  'comments',
+  'likes',
+  'messages',
+  'notifications',
+  'events',
+  'eventGuests',
+  'groups',
+  'groupMembers',
+  'photos',
+  'albums',
+  'media',
+];
+const references: Partial<
+  Record<CollectionName, Record<string, [CollectionName, 'cascade' | 'null']>>
+> = {
+  friendships: {
+    profileId: ['profiles', 'cascade'],
+    friendId: ['profiles', 'cascade'],
+  },
+  groups: { creatorId: ['profiles', 'null'] },
+  groupMembers: {
+    groupId: ['groups', 'cascade'],
+    profileId: ['profiles', 'cascade'],
+  },
+  albums: {
+    ownerId: ['profiles', 'cascade'],
+    coverMediaId: ['media', 'null'],
+  },
+  photos: {
+    ownerId: ['profiles', 'cascade'],
+    albumId: ['albums', 'cascade'],
+    mediaId: ['media', 'cascade'],
+  },
+  posts: {
+    authorId: ['profiles', 'cascade'],
+    wallId: ['profiles', 'null'],
+    groupId: ['groups', 'null'],
+    photoId: ['photos', 'null'],
+  },
+  comments: {
+    postId: ['posts', 'cascade'],
+    authorId: ['profiles', 'cascade'],
+  },
+  likes: {
+    postId: ['posts', 'cascade'],
+    profileId: ['profiles', 'cascade'],
+  },
+  messages: {
+    senderId: ['profiles', 'cascade'],
+    recipientId: ['profiles', 'cascade'],
+  },
+  notifications: {
+    profileId: ['profiles', 'cascade'],
+    actorId: ['profiles', 'cascade'],
+    postId: ['posts', 'null'],
+  },
+  events: { creatorId: ['profiles', 'cascade'] },
+  eventGuests: {
+    eventId: ['events', 'cascade'],
+    profileId: ['profiles', 'cascade'],
+  },
+};
+
+export function applyMutation(world: World, mutation: MutationResult): World {
+  const next = {
+    ...world,
+    settings: mutation.settings ?? world.settings,
+  } as World;
+
+  for (const [name, rows] of Object.entries(mutation.upserts)) {
+    const table = name as CollectionName;
+    const incoming = rows ?? [];
+    const byId = new Map(incoming.map((row) => [row.id, row]));
+    const existing = new Set(next[table].map((row) => row.id));
+    next[table] = [
+      ...next[table].map((row) => byId.get(row.id) ?? row),
+      ...incoming.filter((row) => !existing.has(row.id)),
+    ];
+  }
+
+  const removed = new Map<CollectionName, Set<string>>();
+  for (const [name, ids] of Object.entries(mutation.deletes))
+    removed.set(name as CollectionName, new Set(ids));
+  if (!removed.size) return next;
+  for (const table of collections)
+    next[table] = next[table].map((row) => ({ ...row }));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [name, fields] of Object.entries(references)) {
+      const table = name as CollectionName;
+      for (const row of next[table]) {
+        for (const [field, [target, action]] of Object.entries(fields)) {
+          if (!removed.get(target)?.has(row[field])) continue;
+          if (action === 'null') row[field] = null;
+          else {
+            const ids = removed.get(table) ?? new Set<string>();
+            if (!ids.has(row.id)) {
+              ids.add(row.id);
+              removed.set(table, ids);
+              changed = true;
+            }
+          }
+        }
+      }
+    }
+  }
+  for (const [table, ids] of removed)
+    next[table] = next[table].filter((row) => !ids.has(row.id));
+  return next;
+}
 export const emptyProfile = {
   name: '',
   bio: '',

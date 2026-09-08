@@ -24,11 +24,13 @@ import {
   profileName,
   Avatar,
   request,
+  applyMutation,
   uid,
   now,
   stamp,
   type World,
   type Row,
+  type MutationResult,
 } from './shared';
 import { AppContext, useApp, PersonLink, type ModalState } from './context';
 import { Feed } from './feed';
@@ -111,7 +113,14 @@ export default function App() {
     const task = queue.current.then(async () => {
       setError('');
       try {
-        setWorld(await request(path, method, value));
+        const result = await request<World | MutationResult>(
+          path,
+          method,
+          value,
+        );
+        setWorld((current) =>
+          'schemaVersion' in result ? result : applyMutation(current!, result),
+        );
         if (path === 'switch' || path === 'import') {
           setChatId('');
           setChatList(false);

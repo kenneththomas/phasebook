@@ -18,15 +18,63 @@ test('main screens render through Vite SSR with seeded state', async () => {
     server: { middlewareMode: true, hmr: false, ws: false, watch: null },
   });
   try {
-    const [{ AppContext }, screens, { Feed }, { Avatar }, { Editor }] =
-      await Promise.all([
-        vite.ssrLoadModule('/app/context.tsx'),
-        vite.ssrLoadModule('/app/screens.tsx'),
-        vite.ssrLoadModule('/app/feed.tsx'),
-        vite.ssrLoadModule('/app/shared.tsx'),
-        vite.ssrLoadModule('/app/dialogs.tsx'),
-      ]);
+    const [
+      { AppContext },
+      screens,
+      { Feed },
+      { Avatar, applyMutation },
+      { Editor },
+    ] = await Promise.all([
+      vite.ssrLoadModule('/app/context.tsx'),
+      vite.ssrLoadModule('/app/screens.tsx'),
+      vite.ssrLoadModule('/app/feed.tsx'),
+      vite.ssrLoadModule('/app/shared.tsx'),
+      vite.ssrLoadModule('/app/dialogs.tsx'),
+    ]);
     const world = store.getState();
+    const deletedPost = world.posts[0];
+    const cached = structuredClone(world);
+    cached.comments.push({
+      id: 'cached-comment',
+      postId: deletedPost.id,
+      authorId: 'p1',
+    });
+    cached.likes.push({
+      id: 'cached-like',
+      postId: deletedPost.id,
+      profileId: 'p1',
+    });
+    cached.notifications.push({
+      id: 'cached-notice',
+      postId: deletedPost.id,
+      profileId: 'p1',
+      actorId: 'p2',
+    });
+    const merged = applyMutation(cached, {
+      upserts: { profiles: [{ ...cached.profiles[0], name: 'Updated Name' }] },
+      deletes: { posts: [deletedPost.id] },
+    });
+    assert.equal(merged.profiles[0].name, 'Updated Name');
+    assert.equal(
+      merged.posts.some((post) => post.id === deletedPost.id),
+      false,
+    );
+    assert.equal(
+      merged.comments.some((row) => row.id === 'cached-comment'),
+      false,
+    );
+    assert.equal(
+      merged.likes.some((row) => row.id === 'cached-like'),
+      false,
+    );
+    assert.equal(
+      merged.notifications.find((row) => row.id === 'cached-notice').postId,
+      null,
+    );
+    assert.equal(
+      cached.notifications.find((row) => row.id === 'cached-notice').postId,
+      deletedPost.id,
+    );
     const me = world.profiles.find((p) => p.id === 'p1');
     const value = {
       world,

@@ -16,6 +16,17 @@ export function createApp(store, middleware = null) {
     '.webp': 'image/webp',
     '.woff2': 'font/woff2',
   };
+  const changes = (upserts = {}, deletes = {}, settings) => ({
+    upserts,
+    deletes,
+    ...(settings ? { settings } : {}),
+  });
+  const referencedMedia = (record) =>
+    ['avatarMediaId', 'coverMediaId', 'mediaId']
+      .map((field) => record?.[field])
+      .filter(Boolean)
+      .map((id) => store.get('media', id))
+      .filter(Boolean);
   return createServer(async (req, res) => {
     const json = (status, value) => {
       res.writeHead(status, {
@@ -77,8 +88,19 @@ export function createApp(store, middleware = null) {
         const body = Buffer.concat(chunks).toString('utf8');
         const value = body ? JSON.parse(body) : {};
         if (req.method === 'POST' && url.pathname === '/api/photos/save') {
-          store.writePhoto(value.photo, value.albumName);
-          return json(200, store.getState());
+          const { record, notification, album } = store.writePhotoResult(
+            value.photo,
+            value.albumName,
+          );
+          return json(
+            200,
+            changes({
+              photos: [record],
+              albums: [album],
+              media: referencedMedia(record),
+              ...(notification ? { notifications: [notification] } : {}),
+            }),
+          );
         }
         if (req.method === 'POST' && url.pathname === '/api/media')
           return json(201, store.createMedia(value));
@@ -96,26 +118,41 @@ export function createApp(store, middleware = null) {
           return json(200, store.importState(value));
         if (req.method === 'POST' && url.pathname === '/api/switch') {
           store.switchProfile(value.profileId);
-          return json(200, store.getState());
+          return json(
+            200,
+            changes({}, {}, { activeProfileId: value.profileId }),
+          );
         }
         if (
           req.method === 'POST' &&
           url.pathname === '/api/read-conversation'
         ) {
-          store.markConversationRead(value.profileId, value.otherId);
-          return json(200, store.getState());
+          const messages = store.markConversationRead(
+            value.profileId,
+            value.otherId,
+          );
+          return json(200, changes({ messages }));
         }
         const match = url.pathname.match(
           /^\/api\/records\/([a-zA-Z]+)(?:\/([^/]+))?$/,
         );
         if (!match || !Object.hasOwn(schema, match[1]))
           return json(404, { error: 'Not found.' });
-        if (req.method === 'DELETE' && match[2])
-          store.remove(match[1], decodeURIComponent(match[2]));
-        else if (req.method === 'POST' && !match[2])
-          store.write(match[1], value);
-        else return json(404, { error: 'Not found.' });
-        return json(200, store.getState());
+        let result;
+        if (req.method === 'DELETE' && match[2]) {
+          const id = decodeURIComponent(match[2]);
+          store.remove(match[1], id);
+          result = changes({}, { [match[1]]: [id] });
+        } else if (req.method === 'POST' && !match[2]) {
+          const { record, notification } = store.writeResult(match[1], value);
+          const media = referencedMedia(record);
+          result = changes({
+            [match[1]]: [record],
+            ...(media.length ? { media } : {}),
+            ...(notification ? { notifications: [notification] } : {}),
+          });
+        } else return json(404, { error: 'Not found.' });
+        return json(200, result);
       }
       if (middleware)
         return middleware(req, res, () => {

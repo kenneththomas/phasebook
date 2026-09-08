@@ -106,9 +106,11 @@ test('HTTP API supports record mutation and profile switching', async () => {
       body: JSON.stringify(record),
     });
     assert.equal(created.status, 200);
-    assert.ok(
-      (await created.json()).profiles.some((p) => p.id === 'api-profile'),
-    );
+    const createdDelta = await created.json();
+    assert.deepEqual(createdDelta.deletes, {});
+    assert.equal(createdDelta.upserts.profiles[0].id, 'api-profile');
+    assert.equal(createdDelta.upserts.media.length, 1);
+    assert.equal(createdDelta.schemaVersion, undefined);
     const switched = await request(ctx.base, '/api/switch', {
       method: 'POST',
       body: JSON.stringify({ profileId: 'api-profile' }),
