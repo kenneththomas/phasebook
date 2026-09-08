@@ -191,10 +191,14 @@ export function createApp(store, middleware = null) {
           store.remove(match[1], id);
           result = changes({}, { [match[1]]: [id] });
         } else if (req.method === 'POST' && !match[2]) {
-          const { record, notification } = store.writeResult(match[1], value);
+          const { record, notification, story } = store.writeResult(
+            match[1],
+            value,
+          );
           const media = referencedMedia(record);
           result = changes({
             [match[1]]: [record],
+            ...(story ? { posts: [story] } : {}),
             ...(media.length ? { media } : {}),
             ...(notification ? { notifications: [notification] } : {}),
           });

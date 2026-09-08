@@ -278,6 +278,14 @@ test('friend requests and acceptance create directional notifications', async ()
         ['p1', 'p2', 'Second Person accepted your friend request.'],
       ],
     );
+    const stories = ctx.store
+      .getState()
+      .posts.filter((post) => post.body === 'is now friends with Test Person.');
+    assert.equal(stories.length, 1);
+    assert.deepEqual(
+      stories.map((post) => [post.authorId, post.wallId, post.groupId]),
+      [['p2', 'p2', null]],
+    );
   } finally {
     await closeAndRemove(ctx);
   }

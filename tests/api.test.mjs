@@ -154,6 +154,41 @@ test('HTTP API supports record mutation and profile switching', async () => {
   }
 });
 
+test('accepting a friend request returns the friendship story with the mutation', async () => {
+  const ctx = await start();
+  try {
+    await request(ctx.base, '/api/records/friendships', {
+      method: 'POST',
+      body: JSON.stringify({
+        id: 'api-friend-request',
+        profileId: 'p1',
+        friendId: 'p2',
+        status: 'pending',
+      }),
+    });
+    const accepted = await request(ctx.base, '/api/records/friendships', {
+      method: 'POST',
+      body: JSON.stringify({
+        id: 'api-friend-request',
+        profileId: 'p1',
+        friendId: 'p2',
+        status: 'accepted',
+      }),
+    });
+    assert.equal(accepted.status, 200);
+    const mutation = await accepted.json();
+    assert.equal(mutation.upserts.posts.length, 1);
+    const story = mutation.upserts.posts[0];
+    assert.equal(story.authorId, 'p2');
+    assert.equal(story.wallId, 'p2');
+    assert.equal(story.groupId, null);
+    assert.equal(story.body, 'is now friends with API p1.');
+    assert.equal(story.photoId, null);
+  } finally {
+    await stop(ctx);
+  }
+});
+
 test('HTTP API imports valid JSON and rejects invalid imports without changing state', async () => {
   const ctx = await start();
   try {

@@ -513,7 +513,8 @@ export function createStore(
       let recipient,
         actor,
         body,
-        postId = null;
+        postId = null,
+        story = null;
       if (!previous && ['comments', 'likes'].includes(table)) {
         const post = get('posts', record.postId);
         if (post) {
@@ -549,6 +550,18 @@ export function createStore(
         recipient = record.profileId;
         actor = record.friendId;
         body = 'accepted your friend request.';
+        const requester = get('profiles', record.profileId);
+        const accepter = get('profiles', record.friendId);
+        if (requester && accepter)
+          story = put('posts', {
+            id: randomUUID(),
+            authorId: accepter.id,
+            wallId: accepter.id,
+            groupId: null,
+            body: `is now friends with ${String(requester.name || 'a new friend')}.`,
+            photoId: null,
+            createdAt: new Date().toISOString(),
+          });
       }
       let notification = null;
       if (recipient && actor && recipient !== actor) {
@@ -564,7 +577,7 @@ export function createStore(
             read: 0,
           });
       }
-      return { record, notification };
+      return { record, notification, story };
     });
   }
   function write(table, input) {
