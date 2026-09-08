@@ -53,6 +53,10 @@ Existing SQLite databases are automatically migrated on startup, with a `migrati
 
 See [the data model and migration guide](docs/data-model.md) for the entity overview, ownership rules, stub hydration, shared resolution services, media storage, backup format and current limitations.
 
+Individual profiles can also be exported as merge-oriented `.phasebook`
+archives. See [portable profile packages](docs/profile-packages.md) for their
+precise scope, conflict handling, and media behavior.
+
 To start an independent world in another database file, set `PHASEBOOK_DB` before starting. For example, in PowerShell:
 
 ```powershell

@@ -146,6 +146,15 @@ function Manage() {
   const { world, run, busy, fail, open } = useApp();
   const [incoming, setIncoming] = useState<World | null>(null);
   const [confirm, setConfirm] = useState(false);
+  const [profileFile, setProfileFile] = useState<File | null>(null);
+  const [profilePreview, setProfilePreview] = useState<{
+    profile: { name: string; externalId: string; status: string };
+    counts: Record<string, number>;
+    newStubs: number;
+    mediaCount: number;
+  } | null>(null);
+  const [profileStrategy, setProfileStrategy] = useState('');
+  const [profileBusy, setProfileBusy] = useState(false);
   const readImport = async (file?: File) => {
     if (!file) return;
     try {
@@ -164,6 +173,35 @@ function Manage() {
     } catch (e) {
       setIncoming(null);
       fail((e as Error).message);
+    }
+  };
+  const packageRequest = async (path: string, file: File) => {
+    const response = await fetch('/api/' + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/vnd.phasebook.profile+zip' },
+      body: file,
+    });
+    const value = await response.json();
+    if (!response.ok)
+      throw new Error(value.error || 'Could not read profile package.');
+    return value;
+  };
+  const readProfilePackage = async (file?: File) => {
+    setProfilePreview(null);
+    setProfileFile(null);
+    setProfileStrategy('');
+    if (!file) return;
+    try {
+      if (file.size > 50_000_000)
+        throw new Error('Choose a profile package smaller than 50 MB.');
+      setProfileBusy(true);
+      const preview = await packageRequest('profile-packages/preview', file);
+      setProfileFile(file);
+      setProfilePreview(preview);
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      setProfileBusy(false);
     }
   };
   return (
@@ -304,6 +342,94 @@ function Manage() {
           </div>
         </AlertDialogContent>
       </AlertDialog>
+      <hr />
+      <h3>Import a profile package</h3>
+      <p className="form-help">
+        Merge one profile and its attributable activity into this world. Other
+        people referenced by the package are reused or created as stubs.
+      </p>
+      <input
+        type="file"
+        accept=".phasebook,application/vnd.phasebook.profile+zip,application/zip"
+        aria-label="Import profile package"
+        disabled={profileBusy}
+        onChange={(e) => void readProfilePackage(e.target.files?.[0])}
+      />
+      {profileBusy && <p className="form-help">Validating package…</p>}
+      {profilePreview && profileFile && (
+        <div className="import-preview">
+          <b>{profilePreview.profile.name || 'Unknown profile'}</b>{' '}
+          <span className="muted">({profilePreview.profile.externalId})</span>
+          <p>
+            {profilePreview.profile.status === 'new'
+              ? 'New full profile'
+              : profilePreview.profile.status === 'stub'
+                ? 'Will hydrate the existing stub in place'
+                : 'Conflicts with an existing full profile'}
+          </p>
+          <p>
+            {Object.entries(profilePreview.counts)
+              .filter(([, count]) => count > 0)
+              .map(([name, count]) => `${count} ${name}`)
+              .join(' · ') || 'Profile data only'}
+          </p>
+          <p>
+            {profilePreview.newStubs} new referenced stubs ·{' '}
+            {profilePreview.mediaCount} media records
+          </p>
+          {profilePreview.profile.status === 'conflict' && (
+            <label className="form-field" htmlFor="profile-conflict-strategy">
+              Existing full profile
+              <NativeSelect
+                id="profile-conflict-strategy"
+                value={profileStrategy}
+                onChange={(e) => setProfileStrategy(e.target.value)}
+              >
+                <option value="">Choose an action…</option>
+                <option value="merge">Merge/update existing profile</option>
+                <option value="new">Import as a new profile</option>
+              </NativeSelect>
+            </label>
+          )}
+          <div className="dialog-actions">
+            <button
+              className="blue-button"
+              disabled={
+                profileBusy ||
+                (profilePreview.profile.status === 'conflict' &&
+                  !profileStrategy)
+              }
+              onClick={async () => {
+                try {
+                  setProfileBusy(true);
+                  await packageRequest(
+                    'profile-packages/import?strategy=' +
+                      (profileStrategy || 'merge'),
+                    profileFile,
+                  );
+                  location.reload();
+                } catch (e) {
+                  fail((e as Error).message);
+                  setProfileBusy(false);
+                }
+              }}
+            >
+              {profileBusy ? 'Importing…' : 'Import Profile Package'}
+            </button>
+            <button
+              className="gray-button"
+              disabled={profileBusy}
+              onClick={() => {
+                setProfileFile(null);
+                setProfilePreview(null);
+                setProfileStrategy('');
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -463,6 +589,18 @@ export function Editor({
             <p className="form-help">
               To complete this profile, enter its details and select Full
               profile. Existing relationships will be preserved.
+            </p>
+          )}
+          {row && (
+            <p className="form-help">
+              <a
+                className="text-link"
+                href={'/api/profile-packages/' + encodeURIComponent(row.id)}
+                download={(row.name || 'profile') + '.phasebook'}
+              >
+                Export Profile
+              </a>{' '}
+              as a portable Phasebook package.
             </p>
           )}
         </>
