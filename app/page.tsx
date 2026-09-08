@@ -1,4 +1,5 @@
 import { Networks } from './networks';
+import { Generation } from './generation';
 import { useEffect, useRef, useState } from 'react';
 import {
   Newspaper,
@@ -92,6 +93,7 @@ export default function App() {
         home: 'Home',
         profile: 'Profile',
         networks: 'Networks',
+        generation: 'Generation',
         network: 'Network',
         groups: 'Groups',
         group: 'Group',
@@ -222,6 +224,7 @@ export default function App() {
     { icon: Images, label: 'Photos', view: 'photos' },
     { icon: Users, label: 'Friends', view: 'friends', count: pending },
     { icon: Users, label: 'Networks', view: 'networks' },
+    { icon: Settings, label: 'Generation', view: 'generation' },
     { icon: Users, label: 'Groups', view: 'groups' },
   ];
   let content: React.ReactNode;
@@ -237,6 +240,9 @@ export default function App() {
       break;
     case 'events':
       content = <Events />;
+      break;
+    case 'generation':
+      content = <Generation />;
       break;
     case 'networks':
     case 'network':

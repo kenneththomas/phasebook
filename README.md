@@ -2,7 +2,7 @@
 
 A local-only desktop social simulation inspired by **Facebook in March 2010**. A centered blue header, three-column News Feed, classic profile tabs, flat comments, photo albums, and bottom-bar chat.
 
-All people, relationships and activity are synthetic. There is no authentication, password, permission model, remote account, cloud database or external API. Social data stays in the Node server on this computer; there is no real social networking. Seed imagery and fonts are bundled/local. Optional external images load directly from their source URLs.
+All people, relationships and activity are synthetic. There is no authentication, password, permission model, remote social account, cloud database or required external service. Canonical social data is stored by the Node server on this computer; there is no real social networking. Optional configured generation adapters receive instructions and bounded inspected context. Seed imagery and fonts are bundled/local. Optional external images load directly from their source URLs.
 
 ## Run
 
@@ -33,6 +33,8 @@ The same local URL serves Vite's development interface. Refresh after frontend e
 - **Photos** contains albums; upload a local JPG, PNG or WebP (up to 3 MB) or use an external image URL, edit its caption, or attach it to a post. Albums have owners and editable names and cover images.
 - **Events** supports creation, editing and Attending/Maybe/Not Attending replies.
 - **Networks** provides school, workplace and regional people directories, including stub members. Profile affiliations link to searchable directories; World management controls create networks and edit memberships. See [historical research and design](docs/networks.md) for the intentional earlier-era regional-network extension.
+- **Generation** provides world inspection, manual or model-assisted proposals, selectable previews, atomic commit and conflict-checked undo. See [generation architecture and setup](docs/generation.md) for OpenRouter configuration, provider adapters, temporal limits and provenance.
+- **Agent generation** lets an agent in your coding task inspect, propose and apply changes directly through [command-line tools](docs/agent-generation.md), with no browser or additional model required.
 - **Groups** supports creation, editing, membership and group posts.
 - **Messages** and the bottom **Chat** bar save conversations locally. Switch profiles to write the other side of a conversation. Online indicators are simulated, and there are no automatic real-user replies.
 - **Notifications** includes seeded activity and new likes, comments, Wall posts and friend requests; opening entries marks them read.

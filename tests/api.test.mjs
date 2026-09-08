@@ -182,7 +182,7 @@ test('accepting a friend request returns the friendship story with the mutation'
     assert.equal(story.authorId, 'p2');
     assert.equal(story.wallId, 'p2');
     assert.equal(story.groupId, null);
-    assert.equal(story.body, 'is now friends with API p1.');
+  assert.equal(story.body, 'is now friends with API p1.');
     assert.equal(story.photoId, null);
   } finally {
     await stop(ctx);

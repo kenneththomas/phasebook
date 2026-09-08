@@ -1,9 +1,9 @@
-import * as React from "react";
+import * as React from 'react';
 
-const NAMEY_API = "https://namey.muffinlabs.com/name.json";
+import { fetchNames } from '../lib/namey.mjs';
 
-type NameType = "male" | "female";
-type Frequency = "common" | "rare" | "all";
+type NameType = 'male' | 'female';
+type Frequency = 'common' | 'rare' | 'all';
 
 interface InventNameOptions {
   type?: NameType;
@@ -25,36 +25,17 @@ export function useInventAName(): InventNameResult {
 
   const generateName = React.useCallback(
     async (options: InventNameOptions = {}): Promise<string> => {
-      const { type, frequency = "all", withSurname = true } = options;
-
       setLoading(true);
       setError(null);
 
-      const params = new URLSearchParams({
-        count: "1",
-        frequency,
-        with_surname: String(withSurname),
-      });
-
-      if (type) {
-        params.set("type", type);
-      }
-
       try {
-        const response = await fetch(`${NAMEY_API}?${params}`);
-
-        if (!response.ok) {
-          throw new Error(`Namey API error: ${response.status}`);
-        }
-
-        const data: string[] = await response.json();
-        const result = data[0] ?? "";
+        const [result] = await fetchNames(options);
 
         setName(result);
         return result;
       } catch (err) {
         const message =
-          err instanceof Error ? err.message : "Failed to generate name";
+          err instanceof Error ? err.message : 'Failed to generate name';
         setError(message);
         throw err;
       } finally {

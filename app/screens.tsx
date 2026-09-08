@@ -95,6 +95,9 @@ export function Profile({ id }: { id: string }) {
               ['Hometown', 'hometown'],
               ['Birthday', 'birthday'],
               ['Relationship Status', 'relationship'],
+              ['Gender', 'gender'],
+              ['Political Views', 'politicalViews'],
+              ['Religious Views', 'religiousViews'],
               ['High School', 'highSchoolInfo'],
               ['College', 'collegeInfo'],
               ['Job Title', 'jobTitle'],
@@ -117,6 +120,16 @@ export function Profile({ id }: { id: string }) {
                     ) : (
                       collegeInfo || 'Not added yet'
                     )
+                  ) : key === 'relationship' ? (
+                    <>
+                      {p.relationship || 'Not added yet'}
+                      {p.relationshipWithId && (
+                        <>
+                          {' '}with{' '}
+                          <PersonLink id={p.relationshipWithId} />
+                        </>
+                      )}
+                    </>
                   ) : (
                     p[key] || 'Not added yet'
                   )}

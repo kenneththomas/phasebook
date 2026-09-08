@@ -3,6 +3,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createStore, schema } from './store.mjs';
+import { createGeneration, httpProviderFromEnvironment } from './generation.mjs';
 import {
   exportProfilePackage,
   previewProfilePackage,
@@ -10,6 +11,7 @@ import {
 } from './profile-package.mjs';
 
 export function createApp(store, middleware = null) {
+  const generation = createGeneration(store, { provider: httpProviderFromEnvironment() });
   const root = resolve('dist');
   const mime = {
     '.html': 'text/html; charset=utf-8',
@@ -68,6 +70,13 @@ export function createApp(store, middleware = null) {
               : store.getState(),
           );
         }
+        if (req.method === 'GET' && url.pathname === '/api/generation')
+          return json(200, { runs: generation.list(), configured: generation.configured });
+        if (req.method === 'GET' && url.pathname === '/api/generation-provenance')
+          return json(200, generation.provenance(url.searchParams.get('table'), url.searchParams.get('id')));
+        const generationRoute = url.pathname.match(/^\/api\/generation\/([^/]+)(?:\/([a-z]+))?$/);
+        if (req.method === 'GET' && generationRoute && !generationRoute[2])
+          return json(200, generation.get(generationRoute[1]));
         if (req.method === 'GET' && url.pathname === '/api/search')
           return json(200, store.search(url.searchParams.get('q') ?? '', 50, url.searchParams.get('network') ?? ''));
         const packageExport = url.pathname.match(
@@ -134,6 +143,20 @@ export function createApp(store, middleware = null) {
         // Decode once so multi-byte names survive HTTP chunk boundaries.
         const body = rawBody.toString('utf8');
         const value = body ? JSON.parse(body) : {};
+        if (req.method === 'POST' && url.pathname === '/api/generation')
+          return json(201, generation.create(value));
+        if (req.method === 'POST' && generationRoute) {
+          const [, id, action] = generationRoute;
+          if (action === 'inspect') return json(200, await generation.inspect(id, value.name ?? 'inspect', value.arguments));
+          if (action === 'propose') return json(200, generation.propose(id, value.operations));
+          if (action === 'generate') return json(200, await generation.generate(id));
+          if (action === 'discard') return json(200, generation.discard(id));
+          if (action === 'commit' || action === 'undo') {
+            generation[action](id, value.selected);
+            return json(200, store.getState());
+          }
+          return json(404, { error: 'Unknown generation action.' });
+        }
         if (req.method === 'POST' && url.pathname === '/api/photos/save') {
           const { record, notification, album } = store.writePhotoResult(
             value.photo,

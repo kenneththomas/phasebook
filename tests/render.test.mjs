@@ -103,6 +103,8 @@ test('main screens render through Vite SSR with seeded state', async () => {
     };
     render(React.createElement(screens.Profile, { id: 'p1' }), 'Alex Morgan');
     render(React.createElement(screens.Friends), 'Friends');
+    const { Generation } = await vite.ssrLoadModule('/app/generation.tsx');
+    render(React.createElement(Generation), 'New generation run');
     render(React.createElement(Networks), 'Northeastern University');
     render(React.createElement(Networks, { id: 'n-nu' }), 'Casey Sullivan');
     render(

@@ -299,7 +299,7 @@ test('v3 database upgrades additively with backup and preserves edited city data
   );
   s.close();
   s = createStore(path);
-  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 5);
+  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 7);
   assert.equal(s.get('profiles', 'p1').city, 'Operator City');
   assert.equal(s.getState().networks.length, 0);
   assert.ok(readdirSync(dir).some((f) => f.startsWith('migration-v3-')));

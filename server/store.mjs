@@ -10,6 +10,7 @@ import {
 import { dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
+import { initializeGeneration } from './generation.mjs';
 import {
   schema,
   tables,
@@ -209,7 +210,7 @@ export function createStore(
       existing?.id ?? createMedia({ sourceType, sourceLocation: source }).id
     );
   }
-  function normalize(table, input) {
+  function normalize(table, input, worldDate) {
     const row = { ...input };
     if (table === 'profiles') {
       if (Object.hasOwn(row, 'avatar')) {
@@ -218,8 +219,8 @@ export function createStore(
       }
       return { ...profileDefaults, state: 'full', ...row };
     }
-    if (table === 'networks') return { city: '', region: '', country: '', description: '', createdAt: new Date().toISOString(), ...row };
-    if (table === 'networkMemberships') return { metadata: '{}', createdAt: new Date().toISOString(), ...row };
+    if (table === 'networks') return { city: '', region: '', country: '', description: '', createdAt: worldDate ?? new Date().toISOString(), ...row };
+    if (table === 'networkMemberships') return { metadata: '{}', createdAt: worldDate ?? new Date().toISOString(), ...row };
     if (table === 'groups') return { creatorId: null, ...row };
     if (table === 'photos') {
       if (Object.hasOwn(row, 'src')) {
@@ -246,7 +247,7 @@ export function createStore(
     }
     return row;
   }
-  function put(table, input) {
+  function put(table, input, { worldDate } = {}) {
     return transaction(() => {
       checkTable(table);
       if (!input || typeof input !== 'object' || Array.isArray(input))
@@ -274,7 +275,7 @@ export function createStore(
       }
       if (table === 'profiles' && previous?.state === 'stub')
         record = { ...previous, ...record };
-      record = normalize(table, record);
+      record = normalize(table, record, worldDate);
       if (previous && previous.externalId !== record.externalId)
         throw new Error('External identity cannot be changed.');
       if (
@@ -289,11 +290,11 @@ export function createStore(
         record.state === 'full' &&
         ['highSchool', 'highSchoolGraduationYear', 'college', 'collegeGraduationYear', 'collegeMajor', 'jobTitle', 'employer'].some((field) => Object.hasOwn(input, field))
       )
-        syncProfileNetworks(record);
+        syncProfileNetworks(record, worldDate);
       return saved;
     });
   }
-  function syncProfileNetworks(profile) {
+  function syncProfileNetworks(profile, worldDate) {
     const affiliations = [
       {
         name: profile.highSchool || '',
@@ -331,7 +332,7 @@ export function createStore(
           region: '',
           country: 'US',
           description: '',
-          createdAt: new Date().toISOString(),
+          createdAt: worldDate ?? new Date().toISOString(),
         });
       const metadata = Object.fromEntries(
         Object.entries(affiliation.metadata).filter(([, value]) => value),
@@ -345,7 +346,7 @@ export function createStore(
         profileId: profile.id,
         networkId: target.id,
         metadata: JSON.stringify(metadata),
-        createdAt: existing?.createdAt ?? new Date().toISOString(),
+        createdAt: existing?.createdAt ?? worldDate ?? new Date().toISOString(),
       });
     }
   }
@@ -448,6 +449,8 @@ export function createStore(
   }
   function exportState() {
     const state = getState();
+    state.generationHistory = db.prepare('SELECT payload FROM generationRuns ORDER BY rowid').all().map(row => JSON.parse(row.payload));
+    if (!state.generationHistory.length) delete state.generationHistory;
     const local = state.media.filter((m) => m.sourceType === 'local');
     if (local.length)
       state.mediaFiles = Object.fromEntries(
@@ -528,6 +531,17 @@ export function createStore(
     const before = backup ? exportState() : null;
     return transaction(() => {
       replaceState(value);
+      // Imported audit trails are informational: never trust imported inverse writes.
+      db.exec('DELETE FROM generationRuns');
+      if (value.generationHistory !== undefined) {
+        if (!Array.isArray(value.generationHistory) || value.generationHistory.length > 20000)
+          throw new Error('Invalid generation history.');
+        for (const source of value.generationHistory) {
+          if (!source || typeof source.id !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(source.id) || typeof source.prompt !== 'string' || !Array.isArray(source.operations) || !Array.isArray(source.changes) || !Array.isArray(source.warnings) || !Array.isArray(source.errors))
+            throw new Error('Invalid generation history entry.');
+          db.prepare('INSERT INTO generationRuns VALUES (?,?)').run(source.id, JSON.stringify({ ...source, originalStatus: source.originalStatus ?? source.status, status: 'archived' }));
+        }
+      }
       if (db.prepare('PRAGMA foreign_key_check').all().length)
         throw new Error('Import contains a reference to a missing record.');
       if (backup && filename !== ':memory:')
@@ -568,11 +582,11 @@ export function createStore(
   function writePhoto(photo, albumName) {
     return writePhotoResult(photo, albumName).record;
   }
-  function writeResult(table, input) {
+  function writeResult(table, input, { worldDate } = {}) {
     return transaction(() => {
       checkTable(table);
       const previous = input.id ? get(table, input.id) : undefined;
-      const record = put(table, input);
+      const record = put(table, input, { worldDate });
       let recipient,
         actor,
         body,
@@ -623,7 +637,7 @@ export function createStore(
             groupId: null,
             body: `is now friends with ${String(requester.name || 'a new friend')}.`,
             photoId: null,
-            createdAt: new Date().toISOString(),
+            createdAt: worldDate ?? new Date().toISOString(),
           });
       }
       let notification = null;
@@ -636,7 +650,7 @@ export function createStore(
             actorId: actor,
             body: (profile.name || 'Unknown profile') + ' ' + body,
             postId,
-            createdAt: new Date().toISOString(),
+            createdAt: worldDate ?? new Date().toISOString(),
             read: 0,
           });
       }
@@ -653,7 +667,7 @@ export function createStore(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='profiles'",
       )
       .get();
-    if (version > 5)
+    if (version > 7)
       throw new Error(
         'This database was created by a newer Phasebook version.',
       );
@@ -728,6 +742,32 @@ export function createStore(
         db.exec('PRAGMA user_version=5;');
       });
     }
+    if (db.prepare('PRAGMA user_version').get().user_version === 5) {
+      if (filename !== ':memory:') db.prepare('VACUUM INTO ?').run(resolve(dirname(filename), `migration-v5-${Date.now()}-${randomUUID().slice(0, 8)}.sqlite`));
+      transaction(() => {
+        const existingFields = new Set(db.prepare('PRAGMA table_info(profiles)').all().map(({ name }) => name));
+        for (const field of ['gender', 'politicalViews', 'religiousViews'])
+          if (!existingFields.has(field)) db.exec(`ALTER TABLE profiles ADD COLUMN ${field} TEXT NOT NULL DEFAULT ''`);
+        db.exec('PRAGMA user_version=6;');
+      });
+    }
+    if (db.prepare('PRAGMA user_version').get().user_version === 6) {
+      if (filename !== ':memory:') db.prepare('VACUUM INTO ?').run(resolve(dirname(filename), `migration-v6-${Date.now()}-${randomUUID().slice(0, 8)}.sqlite`));
+      transaction(() => {
+        const existingFields = new Set(db.prepare('PRAGMA table_info(profiles)').all().map(({ name }) => name));
+        if (!existingFields.has('relationshipWithId')) db.exec(`ALTER TABLE profiles ADD COLUMN relationshipWithId TEXT REFERENCES profiles(id) ON DELETE SET NULL`);
+        db.exec('PRAGMA user_version=7;');
+      });
+    }
+    initializeGeneration(db);
+    // A terminated provider request cannot still be running after startup.
+    for (const row of db.prepare('SELECT id,payload FROM generationRuns').all()) {
+      const run = JSON.parse(row.payload);
+      if (run.status === 'inspecting') {
+        run.status = 'failed'; run.errors.push('Model request interrupted by server restart.');
+        db.prepare('UPDATE generationRuns SET payload=? WHERE id=?').run(JSON.stringify(run), row.id);
+      }
+    }
     if (seed && !db.prepare('SELECT 1 FROM settings').get())
       importState(
         JSON.parse(
@@ -752,6 +792,7 @@ export function createStore(
     put,
     write,
     writeResult,
+    restoreRecord: rawPut,
     importState,
     createMedia,
     createPackagedMedia,

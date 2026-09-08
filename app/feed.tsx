@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Camera, Pencil, Globe, ThumbsUp } from 'lucide-react';
+import { Camera, Pencil, Globe, ThumbsUp, UserPlus } from 'lucide-react';
 import {
   mediaURL,
   profileName,
@@ -129,6 +129,32 @@ export function Post({ post }: { post: Row }) {
   );
   const pagedComments = pageRows(comments, commentPage, 3);
   const photo = rowById(world.photos, post.photoId);
+  const friendshipPrefix = 'is now friends with ';
+  const friendshipTargetName = post.body.startsWith(friendshipPrefix)
+    ? post.body.slice(friendshipPrefix.length).replace(/\.$/, '')
+    : '';
+  const friendshipTarget = friendshipTargetName
+    ? world.profiles.find((profile: Row) => profile.name === friendshipTargetName)
+    : undefined;
+  if (friendshipTarget) {
+    return (
+      <article className="post friendship-post" id={'post-' + post.id}>
+        <div className="friendship-icon" aria-hidden="true">
+          <UserPlus size={18} />
+        </div>
+        <div className="post-body">
+          <div className="friendship-line">
+            <PersonLink id={post.authorId} />
+            <span className="friendship-copy">is now friends with</span>
+            <PersonLink id={friendshipTarget.id} />
+          </div>
+          <div className="post-actions">
+            <span>{stamp(post.createdAt)}</span>
+          </div>
+        </div>
+      </article>
+    );
+  }
   return (
     <article className="post" id={'post-' + post.id}>
       <button

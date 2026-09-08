@@ -26,6 +26,7 @@ import {
 } from './shared';
 import { useApp, type ModalState } from './context';
 import { MediaEditor } from './media-editor';
+import { useInventAName } from '../hooks/use-invent-a-name';
 
 export function Modal({ modal }: { modal: ModalState }) {
   const { open, world } = useApp();
@@ -476,6 +477,7 @@ export function Editor({
   onSaved?: (row: Row) => void;
 }) {
   const { me, world, save, run, open, fail, busy, go } = useApp();
+  const { generateName, loading: naming } = useInventAName();
   const defaults: Record<string, Record<string, unknown>> = {
     profile: emptyProfile,
     post: { body: '' },
@@ -518,7 +520,12 @@ export function Editor({
   const [uploading, setUploading] = useState(false);
   const [newAlbum, setNewAlbum] = useState('My Photos');
   const set = (key: string, value: unknown) =>
-    setForm((f) => ({ ...f, [key]: value }));
+    setForm((f) => {
+      const next = { ...f, [key]: value };
+      if (key === 'relationship' && kind === 'profile' && (!value || value === 'Single'))
+        next.relationshipWithId = null;
+      return next;
+    });
   const fields: Record<string, string[][]> = {
     profile: [
       ['name', 'Name'],
@@ -534,6 +541,9 @@ export function Editor({
       ['employer', 'Employer'],
       ['birthday', 'Birthday', 'date'],
       ['relationship', 'Relationship Status'],
+      ['gender', 'Gender'],
+      ['politicalViews', 'Political Views'],
+      ['religiousViews', 'Religious Views'],
       ['interests', 'Interests', 'area'],
     ],
     post: [['body', 'Post', 'area']],
@@ -716,7 +726,8 @@ export function Editor({
         </>
       )}
       {fields[kind]?.map(([key, label, type]) => (
-        <label className="form-field" key={key}>
+        <div key={key}>
+        <label className="form-field">
           {label}
           {type === 'area' ? (
             <textarea
@@ -750,7 +761,29 @@ export function Editor({
             />
           )}
         </label>
+        {kind === 'profile' && key === 'name' && <button type="button" className="gray-button" disabled={naming || busy} onClick={async () => {
+          try { set('name', await generateName()); } catch (error) { fail((error as Error).message); }
+        }}>{naming ? 'Getting name…' : 'Generate name with Namey'}</button>}
+        </div>
       ))}
+      {kind === 'profile' && form.relationship && form.relationship !== 'Single' && (
+        <label className="form-field">
+          Relationship With
+          <NativeSelect
+            value={form.relationshipWithId ?? ''}
+            onChange={(e) => set('relationshipWithId', e.target.value || null)}
+          >
+            <option value="">None</option>
+            {world.profiles
+              .filter((p: Row) => p.id !== form.id)
+              .map((p: Row) => (
+                <option key={p.id} value={p.id}>
+                  {profileName(p)}
+                </option>
+              ))}
+          </NativeSelect>
+        </label>
+      )}
       <div className="dialog-actions">
         <button
           type="button"

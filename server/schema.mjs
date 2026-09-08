@@ -20,6 +20,10 @@ export const profileDefaults = {
   work: '',
   birthday: '',
   relationship: '',
+  relationshipWithId: null,
+  gender: '',
+  politicalViews: '',
+  religiousViews: '',
   interests: '',
   avatarMediaId: null,
 };
@@ -41,9 +45,10 @@ export const schema = {
     state: "TEXT NOT NULL CHECK(state IN ('full','stub'))",
     ...Object.fromEntries(
       Object.keys(profileDefaults)
-        .filter((k) => k !== 'avatarMediaId')
+        .filter((k) => k !== 'avatarMediaId' && k !== 'relationshipWithId')
         .map((k) => [k, text]),
     ),
+    relationshipWithId: ref('profiles', true),
     avatarMediaId: mediaRef(true),
   },
   networks: {
@@ -249,5 +254,5 @@ export function createSchema(db) {
     CREATE INDEX idx_notifications_profile ON notifications(profileId,read,createdAt);
     CREATE INDEX idx_event_guests_event ON eventGuests(eventId,status);
     CREATE INDEX idx_group_members_profile ON groupMembers(profileId,groupId);
-    PRAGMA user_version=5;`);
+    PRAGMA user_version=6;`);
 }
