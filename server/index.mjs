@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import os from 'node:os';
 import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -45,14 +46,16 @@ export function createApp(store, middleware = null) {
     try {
       const url = new URL(req.url, 'http://127.0.0.1');
       if (url.pathname.startsWith('/api/')) {
-        // Only same-origin local browser requests. This is not an account/permission system.
-        if (
-          req.headers.origin &&
-          ![
-            `http://127.0.0.1:${req.socket.localPort}`,
-            `http://localhost:${req.socket.localPort}`,
-          ].includes(req.headers.origin)
-        )
+        // Only same-origin browser requests. This is not an account/permission system.
+        // Include the Host header so an explicitly LAN-bound server can be used from
+        // another device on the same network.
+        const requestHost = req.headers.host;
+        const allowedOrigins = new Set([
+          `http://127.0.0.1:${req.socket.localPort}`,
+          `http://localhost:${req.socket.localPort}`,
+          ...(requestHost ? [`http://${requestHost}`] : []),
+        ]);
+        if (req.headers.origin && !allowedOrigins.has(req.headers.origin))
           return json(403, { error: 'Use the local Phasebook window.' });
         if (
           req.method === 'GET' &&
@@ -272,9 +275,19 @@ if (
     : null;
   const server = createApp(store, vite?.middlewares);
   const port = Number(process.env.PORT || 5173);
-  server.listen(port, '127.0.0.1', () =>
-    console.log(`Phasebook is local at http://127.0.0.1:${port}`),
-  );
+  const host = process.env.HOST || '127.0.0.1';
+  server.listen(port, host, () => {
+    if (host === '0.0.0.0' || host === '::') {
+      const addresses = Object.values(os.networkInterfaces())
+        .flat()
+        .filter((entry) => entry && entry.family === 'IPv4' && !entry.internal)
+        .map((entry) => `http://${entry.address}:${port}`);
+      console.log(`Phasebook is listening on ${host}:${port}`);
+      console.log(`LAN URLs: ${addresses.join(', ') || '(no LAN IPv4 address found)'}`);
+    } else {
+      console.log(`Phasebook is local at http://${host}:${port}`);
+    }
+  });
   for (const signal of ['SIGINT', 'SIGTERM'])
     process.on(signal, () =>
       server.close(async () => {

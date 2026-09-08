@@ -14,7 +14,14 @@ npm run build
 npm start
 ```
 
-Open **http://127.0.0.1:5173**. The server binds only to the loopback address. After dependencies are installed, the application works without internet access; optional remote images require their source to be reachable. Stop it with Ctrl+C.
+Open **http://127.0.0.1:5173**. By default the server binds only to the loopback address. To make it reachable from other devices on the same LAN, start it with an explicit host binding:
+
+```powershell
+$env:HOST = '0.0.0.0'
+npm start
+```
+
+The startup log will print the usable LAN URL, such as `http://192.168.1.25:5173`. This exposes the app and its local data APIs to anyone who can reach that port; there is no authentication or permission system, so use it only on a trusted network. After dependencies are installed, the application works without internet access; optional remote images require their source to be reachable. Stop it with Ctrl+C.
 
 For development:
 
@@ -75,7 +82,7 @@ npm start
 - `server/schema.mjs` — relational schema, constraints and reference definitions.
 - `server/store.mjs` — migrations, external identity resolution, stub hydration, social writes and import/export.
 - `server/media.mjs` — source validation and managed file storage.
-- `server/index.mjs` — loopback HTTP server and local persistence endpoints.
+- `server/index.mjs` — configurable local/LAN HTTP server and local persistence endpoints.
 - `db/seed.json` — editable, synthetic starter world.
 - `public/assets/` — bundled fictional portraits and album images.
 - `tests/` — SQLite persistence, relationship constraints, imports and HTTP tests.
