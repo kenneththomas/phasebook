@@ -283,8 +283,71 @@ export function createStore(
         record.state === 'stub'
       )
         throw new Error('A full profile cannot be downgraded to a stub.');
-      return rawPut(table, record);
+      const saved = rawPut(table, record);
+      if (
+        table === 'profiles' &&
+        record.state === 'full' &&
+        ['highSchool', 'highSchoolGraduationYear', 'college', 'collegeGraduationYear', 'collegeMajor', 'jobTitle', 'employer'].some((field) => Object.hasOwn(input, field))
+      )
+        syncProfileNetworks(record);
+      return saved;
     });
+  }
+  function syncProfileNetworks(profile) {
+    const affiliations = [
+      {
+        name: profile.highSchool || '',
+        type: 'high_school',
+        metadata: {
+          classYear: profile.highSchoolGraduationYear || '',
+        },
+      },
+      {
+        name: profile.college || profile.education || '',
+        type: 'college',
+        metadata: {
+          classYear: profile.collegeGraduationYear || '',
+          major: profile.collegeMajor || '',
+        },
+      },
+      {
+        name: profile.employer || profile.work || '',
+        type: 'workplace',
+        metadata: { position: profile.jobTitle || '' },
+      },
+    ].filter(({ name }) => name.trim());
+    for (const affiliation of affiliations) {
+      const network = db
+        .prepare('SELECT * FROM networks WHERE type=? AND name=? COLLATE NOCASE LIMIT 1')
+        .get(affiliation.type, affiliation.name.trim());
+      const target =
+        network ??
+        rawPut('networks', {
+          id: randomUUID(),
+          externalId: newExternalId(),
+          name: affiliation.name.trim(),
+          type: affiliation.type,
+          city: '',
+          region: '',
+          country: 'US',
+          description: '',
+          createdAt: new Date().toISOString(),
+        });
+      const metadata = Object.fromEntries(
+        Object.entries(affiliation.metadata).filter(([, value]) => value),
+      );
+      const existing = db
+        .prepare('SELECT * FROM networkMemberships WHERE profileId=? AND networkId=?')
+        .get(profile.id, target.id);
+      rawPut('networkMemberships', {
+        id: existing?.id ?? randomUUID(),
+        externalId: existing?.externalId ?? newExternalId(),
+        profileId: profile.id,
+        networkId: target.id,
+        metadata: JSON.stringify(metadata),
+        createdAt: existing?.createdAt ?? new Date().toISOString(),
+      });
+    }
   }
   function ensureProfileStub(externalId, name = '') {
     return transaction(
@@ -590,7 +653,7 @@ export function createStore(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='profiles'",
       )
       .get();
-    if (version > 4)
+    if (version > 5)
       throw new Error(
         'This database was created by a newer Phasebook version.',
       );
@@ -654,6 +717,16 @@ export function createStore(
     if (db.prepare('PRAGMA user_version').get().user_version === 3) {
       if (filename !== ':memory:') db.prepare('VACUUM INTO ?').run(resolve(dirname(filename), `migration-v3-${Date.now()}-${randomUUID().slice(0,8)}.sqlite`));
       transaction(() => { createNetworkSchema(db); db.exec('PRAGMA user_version=4;'); });
+    }
+    if (db.prepare('PRAGMA user_version').get().user_version === 4) {
+      if (filename !== ':memory:') db.prepare('VACUUM INTO ?').run(resolve(dirname(filename), `migration-v4-${Date.now()}-${randomUUID().slice(0, 8)}.sqlite`));
+      transaction(() => {
+        const existingFields = new Set(db.prepare('PRAGMA table_info(profiles)').all().map(({ name }) => name));
+        for (const field of ['highSchool', 'highSchoolGraduationYear', 'college', 'collegeGraduationYear', 'collegeMajor', 'jobTitle', 'employer'])
+          if (!existingFields.has(field)) db.exec(`ALTER TABLE profiles ADD COLUMN ${field} TEXT NOT NULL DEFAULT ''`);
+        db.exec("UPDATE profiles SET college=education WHERE college='' AND education<>''; UPDATE profiles SET employer=work WHERE employer='' AND work<>'';");
+        db.exec('PRAGMA user_version=5;');
+      });
     }
     if (seed && !db.prepare('SELECT 1 FROM settings').get())
       importState(

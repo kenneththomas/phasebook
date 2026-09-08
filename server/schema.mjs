@@ -9,6 +9,13 @@ export const profileDefaults = {
   bio: '',
   city: '',
   hometown: '',
+  highSchool: '',
+  highSchoolGraduationYear: '',
+  college: '',
+  collegeGraduationYear: '',
+  collegeMajor: '',
+  jobTitle: '',
+  employer: '',
   education: '',
   work: '',
   birthday: '',
@@ -242,5 +249,5 @@ export function createSchema(db) {
     CREATE INDEX idx_notifications_profile ON notifications(profileId,read,createdAt);
     CREATE INDEX idx_event_guests_event ON eventGuests(eventId,status);
     CREATE INDEX idx_group_members_profile ON groupMembers(profileId,groupId);
-    PRAGMA user_version=4;`);
+    PRAGMA user_version=5;`);
 }

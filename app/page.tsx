@@ -378,7 +378,7 @@ export default function App() {
                 <p className="muted">Current City</p>
                 <p>{viewed.city || 'Not added'}</p>
                 <p className="muted">Education</p>
-                <p>{viewed.education || 'Not added'}</p>
+                <p>{viewed.college || viewed.highSchool || 'Not added'}</p>
                 <h4>FRIENDS</h4>
                 <div className="friend-thumbnails">
                   {world.profiles

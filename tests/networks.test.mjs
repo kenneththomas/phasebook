@@ -74,6 +74,44 @@ test('all network types, extensible types, multiple memberships and metadata val
   );
 });
 
+test('profile education and work fields populate matching networks', (t) => {
+  const s = memory(t);
+  const profile = s.put('profiles', {
+    name: 'Networked Student',
+    college: 'Example University',
+    collegeGraduationYear: '2028',
+    collegeMajor: 'History',
+    employer: 'Example Cafe',
+    jobTitle: 'Barista',
+  });
+  const state = s.getState();
+  const college = state.networks.find((n) => n.name === 'Example University');
+  const workplace = state.networks.find((n) => n.name === 'Example Cafe');
+  assert.equal(college.type, 'college');
+  assert.equal(workplace.type, 'workplace');
+  assert.deepEqual(
+    JSON.parse(
+      state.networkMemberships.find(
+        (m) => m.profileId === profile.id && m.networkId === college.id,
+      ).metadata,
+    ),
+    { classYear: '2028', major: 'History' },
+  );
+  assert.deepEqual(
+    JSON.parse(
+      state.networkMemberships.find(
+        (m) => m.profileId === profile.id && m.networkId === workplace.id,
+      ).metadata,
+    ),
+    { position: 'Barista' },
+  );
+  s.put('profiles', { ...profile, collegeMajor: 'Anthropology' });
+  assert.equal(
+    s.getState().networkMemberships.filter((m) => m.profileId === profile.id).length,
+    2,
+  );
+});
+
 test('directories include full and stub members, typed filters and active-user context', (t) => {
   const s = memory(t);
   let rows = s.networkDirectory('n-nu');
@@ -261,7 +299,7 @@ test('v3 database upgrades additively with backup and preserves edited city data
   );
   s.close();
   s = createStore(path);
-  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 4);
+  assert.equal(s.db.prepare('PRAGMA user_version').get().user_version, 5);
   assert.equal(s.get('profiles', 'p1').city, 'Operator City');
   assert.equal(s.getState().networks.length, 0);
   assert.ok(readdirSync(dir).some((f) => f.startsWith('migration-v3-')));

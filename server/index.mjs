@@ -198,6 +198,12 @@ export function createApp(store, middleware = null) {
           const media = referencedMedia(record);
           result = changes({
             [match[1]]: [record],
+            ...(match[1] === 'profiles'
+              ? {
+                  networks: store.getState().networks,
+                  networkMemberships: store.getState().networkMemberships,
+                }
+              : {}),
             ...(story ? { posts: [story] } : {}),
             ...(media.length ? { media } : {}),
             ...(notification ? { notifications: [notification] } : {}),

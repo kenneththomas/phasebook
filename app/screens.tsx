@@ -36,6 +36,18 @@ export function Profile({ id }: { id: string }) {
   const { world, person, open } = useApp();
   const p = person(id);
   if (!p) return <p>Profile not found.</p>;
+  const shortYear = (year: unknown) => {
+    const value =
+      typeof year === 'string' || typeof year === 'number' ? year : '';
+    return value ? `'${value.toString().slice(-2)}` : '';
+  };
+  const highSchoolInfo = [p.highSchool, shortYear(p.highSchoolGraduationYear)]
+    .filter(Boolean)
+    .join(' ');
+  const collegeYear = shortYear(p.collegeGraduationYear);
+  const collegeInfo = [p.college, collegeYear, p.collegeMajor]
+    .filter(Boolean)
+    .join(' ');
   return (
     <>
       <Title
@@ -82,14 +94,22 @@ export function Profile({ id }: { id: string }) {
               ['Hometown', 'hometown'],
               ['Birthday', 'birthday'],
               ['Relationship Status', 'relationship'],
-              ['Education', 'education'],
-              ['Work', 'work'],
+              ['High School', 'highSchoolInfo'],
+              ['College', 'collegeInfo'],
+              ['Job Title', 'jobTitle'],
+              ['Employer', 'employer'],
               ['Interests', 'interests'],
               ['About Me', 'bio'],
             ].map(([label, key]) => (
               <div key={key}>
                 <dt>{label}:</dt>
-                <dd>{p[key] || 'Not added yet'}</dd>
+                <dd>
+                  {(key === 'highSchoolInfo'
+                    ? highSchoolInfo
+                    : key === 'collegeInfo'
+                      ? collegeInfo
+                      : p[key]) || 'Not added yet'}
+                </dd>
               </div>
             ))}
           </dl>
@@ -164,7 +184,7 @@ export function Friends() {
               <Avatar person={p} size={60} />
               <div className="grow">
                 <PersonLink id={p.id} />
-                <p className="muted">{p.education}</p>
+                <p className="muted">{p.college || p.highSchool}</p>
                 <p className="muted">{p.city}</p>
                 <button
                   className="text-link"
@@ -187,6 +207,15 @@ export function Friends() {
                 ) : rel?.profileId === me.id ? (
                   <>
                     <span className="muted">Friend Request Sent</span>
+                    <button
+                      className="blue-button"
+                      disabled={busy}
+                      onClick={() =>
+                        save('friendships', { ...rel, status: 'accepted' })
+                      }
+                    >
+                      Force Accept (Simulation)
+                    </button>
                     <button
                       disabled={busy}
                       onClick={() => remove('friendships', rel.id)}
