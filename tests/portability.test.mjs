@@ -33,7 +33,7 @@ function legacyDB(filename, value) {
         .join(',')})`,
     );
     const keys = ['id', ...Object.keys(fields)];
-    for (const row of value[table])
+    for (const row of value[table].filter(r => table !== 'profiles' || r.state !== 'stub'))
       db.prepare(
         `INSERT INTO ${table} VALUES (${keys.map(() => '?').join(',')})`,
       ).run(...keys.map((k) => row[k]));

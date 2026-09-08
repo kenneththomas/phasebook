@@ -101,6 +101,7 @@ test('HTTP API searches profiles, posts, and groups server-side', async () => {
       profiles: [],
       posts: [],
       groups: [],
+      networks: [],
     });
   } finally {
     await stop(ctx);

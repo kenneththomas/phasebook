@@ -638,6 +638,10 @@ export function createStore(
         CREATE INDEX IF NOT EXISTS idx_group_members_profile ON groupMembers(profileId,groupId);
         PRAGMA user_version=3;`);
     }
+    if (db.prepare('PRAGMA user_version').get().user_version === 3) {
+      if (filename !== ':memory:') db.prepare('VACUUM INTO ?').run(resolve(dirname(filename), `migration-v3-${Date.now()}-${randomUUID().slice(0,8)}.sqlite`));
+      transaction(() => { createNetworkSchema(db); db.exec('PRAGMA user_version=4;'); });
+    }
     if (seed && !db.prepare('SELECT 1 FROM settings').get())
       importState(
         JSON.parse(
@@ -651,16 +655,13 @@ export function createStore(
     throw error;
   }
   return {
-    if (db.prepare('PRAGMA user_version').get().user_version === 3) {
-      if (filename !== ':memory:') db.prepare('VACUUM INTO ?').run(resolve(dirname(filename), `migration-v3-${Date.now()}-${randomUUID().slice(0,8)}.sqlite`));
-      transaction(() => { createNetworkSchema(db); db.exec('PRAGMA user_version=4;'); });
-    }
     db,
     mediaDir,
     transaction,
     get,
     getState,
     search,
+    networkDirectory: (id, filters = {}) => networkDirectory(getState(), id, filters),
     exportState,
     put,
     write,
@@ -674,7 +675,6 @@ export function createStore(
     ensureProfileStub,
     hydrateProfile,
     putExternal,
-    networkDirectory: (id, filters = {}) => networkDirectory(getState(), id, filters),
     mediaFile(id) {
       const row = get('media', id);
       if (!row || row.sourceType !== 'local')

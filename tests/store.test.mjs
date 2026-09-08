@@ -60,7 +60,7 @@ test('seed data has complete references', async () => {
     await readFile(new URL('../db/seed.json', import.meta.url), 'utf8'),
   );
   assert.equal(state.schemaVersion, 1);
-  assert.equal(state.profiles.length, 8);
+  assert.equal(state.profiles.length, 10);
   const ids = Object.fromEntries(
     ['profiles', 'posts', 'photos', 'groups', 'events'].map((t) => [
       t,
@@ -97,7 +97,7 @@ test('createStore default seeding loads the bundled seed file', async () => {
     const state = ctx.store.getState();
     assert.equal(state.schemaVersion, 2);
     assert.equal(state.settings.activeProfileId, 'p1');
-    assert.equal(state.profiles.length, 8);
+    assert.equal(state.profiles.length, 10);
     assert.equal(state.posts.length, 12);
   } finally {
     await closeAndRemove(ctx);

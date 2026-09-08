@@ -31,6 +31,8 @@ test('main screens render through Vite SSR with seeded state', async () => {
       vite.ssrLoadModule('/app/shared.tsx'),
       vite.ssrLoadModule('/app/dialogs.tsx'),
     ]);
+    const { Networks, NetworkEditor } =
+      await vite.ssrLoadModule('/app/networks.tsx');
     const world = store.getState();
     const deletedPost = world.posts[0];
     const cached = structuredClone(world);
@@ -101,6 +103,15 @@ test('main screens render through Vite SSR with seeded state', async () => {
     };
     render(React.createElement(screens.Profile, { id: 'p1' }), 'Alex Morgan');
     render(React.createElement(screens.Friends), 'Friends');
+    render(React.createElement(Networks), 'Northeastern University');
+    render(React.createElement(Networks, { id: 'n-nu' }), 'Casey Sullivan');
+    render(
+      React.createElement(NetworkEditor, {
+        kind: 'networkMembership',
+        row: world.networkMemberships[0],
+      }),
+      'Class Year',
+    );
     render(React.createElement(screens.Photos), 'Photos');
     render(React.createElement(screens.Events), 'Events');
     render(React.createElement(screens.Groups), 'Groups');
