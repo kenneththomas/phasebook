@@ -319,6 +319,33 @@ export function createStore(
       ]),
     ),
   });
+  function search(query, limit = 50) {
+    if (typeof query !== 'string' || !query.trim())
+      return { profiles: [], posts: [], groups: [] };
+    const normalizedLimit = Math.min(Math.max(Number(limit) || 50, 1), 100);
+    const pattern = `%${query.trim().replace(/[\\%_]/g, '\\$&')}%`;
+    return {
+      profiles: db
+        .prepare(
+          `SELECT * FROM profiles
+           WHERE name LIKE ? ESCAPE '\\' OR city LIKE ? ESCAPE '\\' OR education LIKE ? ESCAPE '\\'
+           ORDER BY name COLLATE NOCASE, id LIMIT ?`,
+        )
+        .all(pattern, pattern, pattern, normalizedLimit),
+      posts: db
+        .prepare(
+          `SELECT * FROM posts WHERE body LIKE ? ESCAPE '\\'
+           ORDER BY createdAt DESC, id LIMIT ?`,
+        )
+        .all(pattern, normalizedLimit),
+      groups: db
+        .prepare(
+          `SELECT * FROM groups WHERE name LIKE ? ESCAPE '\\'
+           ORDER BY name COLLATE NOCASE, id LIMIT ?`,
+        )
+        .all(pattern, normalizedLimit),
+    };
+  }
   function exportState() {
     const state = getState();
     const local = state.media.filter((m) => m.sourceType === 'local');
@@ -512,7 +539,7 @@ export function createStore(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='profiles'",
       )
       .get();
-    if (version > 2)
+    if (version > 3)
       throw new Error(
         'This database was created by a newer Phasebook version.',
       );
@@ -562,6 +589,17 @@ export function createStore(
         db.exec('PRAGMA foreign_keys=ON');
       }
     }
+    if (db.prepare('PRAGMA user_version').get().user_version === 2) {
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_posts_wall ON posts(wallId,createdAt);
+        CREATE INDEX IF NOT EXISTS idx_posts_group ON posts(groupId,createdAt);
+        CREATE INDEX IF NOT EXISTS idx_likes_post ON likes(postId);
+        CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipientId,read,createdAt);
+        CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(senderId,createdAt);
+        CREATE INDEX IF NOT EXISTS idx_notifications_profile ON notifications(profileId,read,createdAt);
+        CREATE INDEX IF NOT EXISTS idx_event_guests_event ON eventGuests(eventId,status);
+        CREATE INDEX IF NOT EXISTS idx_group_members_profile ON groupMembers(profileId,groupId);
+        PRAGMA user_version=3;`);
+    }
     if (seed && !db.prepare('SELECT 1 FROM settings').get())
       importState(
         JSON.parse(
@@ -579,6 +617,7 @@ export function createStore(
     mediaDir,
     get,
     getState,
+    search,
     exportState,
     put,
     write,

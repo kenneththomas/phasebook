@@ -63,6 +63,8 @@ export function createApp(store, middleware = null) {
               : store.getState(),
           );
         }
+        if (req.method === 'GET' && url.pathname === '/api/search')
+          return json(200, store.search(url.searchParams.get('q') ?? ''));
         const mediaMatch = url.pathname.match(/^\/api\/media\/([^/]+)$/);
         if (req.method === 'GET' && mediaMatch) {
           const file = store.mediaFile(decodeURIComponent(mediaMatch[1]));

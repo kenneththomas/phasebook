@@ -29,6 +29,37 @@ export type MutationResult = {
   deletes: Partial<Record<CollectionName, string[]>>;
   settings?: World['settings'];
 };
+export type SearchResult = Pick<World, 'profiles' | 'posts' | 'groups'>;
+
+const idIndexes = new WeakMap<Row[], Map<string, Row>>();
+const fieldIndexes = new WeakMap<Row[], Map<string, Map<unknown, Row[]>>>();
+export function rowById(rows: Row[], id?: string | null) {
+  if (!id) return undefined;
+  let index = idIndexes.get(rows);
+  if (!index) {
+    index = new Map(rows.map((row) => [row.id, row]));
+    idIndexes.set(rows, index);
+  }
+  return index.get(id);
+}
+export function rowsBy(rows: Row[], field: string, value: unknown) {
+  let fields = fieldIndexes.get(rows);
+  if (!fields) {
+    fields = new Map();
+    fieldIndexes.set(rows, fields);
+  }
+  let index = fields.get(field);
+  if (!index) {
+    index = new Map();
+    for (const row of rows) {
+      const bucket = index.get(row[field]);
+      if (bucket) bucket.push(row);
+      else index.set(row[field], [row]);
+    }
+    fields.set(field, index);
+  }
+  return index.get(value) ?? [];
+}
 
 const collections: CollectionName[] = [
   'profiles',
@@ -191,10 +222,10 @@ export function mediaSource(media?: Row) {
     : media.sourceLocation;
 }
 export function mediaURL(world: World, id?: string | null) {
-  return mediaSource(world.media.find((m) => m.id === id));
+  return mediaSource(rowById(world.media, id));
 }
 export const albumName = (world: World, id: string) =>
-  world.albums.find((a) => a.id === id)?.name || 'Photos';
+  rowById(world.albums, id)?.name || 'Photos';
 export function Avatar({ person, size = 50 }: { person?: Row; size?: number }) {
   const { world } = useContext(AppContext);
   return (

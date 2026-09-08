@@ -8,6 +8,8 @@ import {
   stamp,
   uid,
   type Row,
+  rowById,
+  rowsBy,
 } from './shared';
 import { useApp, PersonLink } from './context';
 import { Pager, pageRows } from './pagination';
@@ -120,13 +122,13 @@ export function Post({ post }: { post: Row }) {
   const [showComment, setShowComment] = useState(false);
   const [commentPage, setCommentPage] = useState(1);
   const input = useRef<HTMLInputElement>(null);
-  const likes = world.likes.filter((l: Row) => l.postId === post.id);
+  const likes = rowsBy(world.likes, 'postId', post.id);
   const mine = likes.find((l: Row) => l.profileId === me.id);
-  const comments = world.comments
-    .filter((c: Row) => c.postId === post.id)
-    .sort((a: Row, b: Row) => a.createdAt.localeCompare(b.createdAt));
+  const comments = [...rowsBy(world.comments, 'postId', post.id)].sort(
+    (a: Row, b: Row) => a.createdAt.localeCompare(b.createdAt),
+  );
   const pagedComments = pageRows(comments, commentPage, 3);
-  const photo = world.photos.find((p: Row) => p.id === post.photoId);
+  const photo = rowById(world.photos, post.photoId);
   return (
     <article className="post" id={'post-' + post.id}>
       <button

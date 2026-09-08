@@ -28,6 +28,8 @@ import {
   uid,
   now,
   stamp,
+  rowById,
+  rowsBy,
   type World,
   type Row,
   type MutationResult,
@@ -149,10 +151,8 @@ export default function App() {
         )}
       </div>
     );
-  const me = world.profiles.find(
-    (p: Row) => p.id === world.settings.activeProfileId,
-  )!;
-  const person = (id: string) => world.profiles.find((p: Row) => p.id === id)!;
+  const me = rowById(world.profiles, world.settings.activeProfileId)!;
+  const person = (id: string) => rowById(world.profiles, id)!;
   const save = (table: string, row: Row) =>
     mutate('records/' + table, 'POST', row);
   const remove = (table: string, id: string) =>
@@ -205,8 +205,8 @@ export default function App() {
     .sort((a: Row, b: Row) => {
       if (sort === 'Top News') {
         const score = (id: string) =>
-          world.likes.filter((l: Row) => l.postId === id).length +
-          world.comments.filter((c: Row) => c.postId === id).length * 2;
+          rowsBy(world.likes, 'postId', id).length +
+          rowsBy(world.comments, 'postId', id).length * 2;
         const delta = score(b.id) - score(a.id);
         if (delta) return delta;
       }
@@ -247,7 +247,7 @@ export default function App() {
       content = <Notifications />;
       break;
     case 'search':
-      content = <SearchResults query={route.id} />;
+      content = <SearchResults key={route.id} query={route.id} />;
       break;
     case 'post':
       content = (
@@ -255,7 +255,11 @@ export default function App() {
           <Title>Wall Post</Title>
           <Feed
             compose={false}
-            posts={world.posts.filter((p: Row) => p.id === route.id)}
+            posts={
+              rowById(world.posts, route.id)
+                ? [rowById(world.posts, route.id)!]
+                : []
+            }
           />
         </>
       );

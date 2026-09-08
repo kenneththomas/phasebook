@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Users, Plus } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { NativeSelect } from '@/components/ui/native-select';
@@ -12,6 +12,8 @@ import {
   uid,
   stamp,
   type Row,
+  request,
+  type SearchResult,
 } from './shared';
 import { Feed } from './feed';
 
@@ -634,20 +636,26 @@ export function Notifications() {
 }
 export function SearchResults({ query }: { query: string }) {
   const { world, go } = useApp();
-  const q = query.toLowerCase();
-  const people = world.profiles.filter((p: Row) =>
-    (p.name + ' ' + p.city + ' ' + p.education).toLowerCase().includes(q),
-  );
-  const posts = world.posts.filter((p: Row) =>
-    p.body.toLowerCase().includes(q),
-  );
-  const groups = world.groups.filter((g: Row) =>
-    g.name.toLowerCase().includes(q),
-  );
+  const [results, setResults] = useState<SearchResult | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let active = true;
+    request<SearchResult>('search?q=' + encodeURIComponent(query))
+      .then((value) => active && setResults(value))
+      .catch((reason: Error) => active && setError(reason.message));
+    return () => {
+      active = false;
+    };
+  }, [query, world]);
+  const people = results?.profiles ?? [];
+  const posts = results?.posts ?? [];
+  const groups = results?.groups ?? [];
   return (
     <>
       <Title>Search Results</Title>
       <p className="list-caption">Results for “{query}”</p>
+      {!results && !error && <p className="empty-state">Searching…</p>}
+      {error && <p className="error">{error}</p>}
       {people.map((p: Row) => (
         <div className="directory-row" key={p.id}>
           <Avatar person={p} />

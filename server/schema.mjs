@@ -174,8 +174,16 @@ export function createSchema(db) {
     CREATE UNIQUE INDEX member_pair ON groupMembers(groupId,profileId);
     CREATE UNIQUE INDEX guest_pair ON eventGuests(eventId,profileId);
     CREATE INDEX idx_posts_author ON posts(authorId,createdAt);
+    CREATE INDEX idx_posts_wall ON posts(wallId,createdAt);
+    CREATE INDEX idx_posts_group ON posts(groupId,createdAt);
     CREATE INDEX idx_comments_post ON comments(postId);
+    CREATE INDEX idx_likes_post ON likes(postId);
     CREATE INDEX idx_albums_owner ON albums(ownerId);
     CREATE INDEX idx_photos_album ON photos(albumId);
-    PRAGMA user_version=2;`);
+    CREATE INDEX idx_messages_recipient ON messages(recipientId,read,createdAt);
+    CREATE INDEX idx_messages_sender ON messages(senderId,createdAt);
+    CREATE INDEX idx_notifications_profile ON notifications(profileId,read,createdAt);
+    CREATE INDEX idx_event_guests_event ON eventGuests(eventId,status);
+    CREATE INDEX idx_group_members_profile ON groupMembers(profileId,groupId);
+    PRAGMA user_version=3;`);
 }

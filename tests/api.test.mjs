@@ -85,6 +85,28 @@ test('HTTP API exposes state and export with expected headers', async () => {
   }
 });
 
+test('HTTP API searches profiles, posts, and groups server-side', async () => {
+  const ctx = await start();
+  try {
+    const response = await request(ctx.base, '/api/search?q=seed');
+    assert.equal(response.status, 200);
+    const results = await response.json();
+    assert.deepEqual(results.profiles, []);
+    assert.equal(results.posts[0].id, 'post1');
+    assert.deepEqual(results.groups, []);
+
+    const escaped = await request(ctx.base, '/api/search?q=%25');
+    assert.equal(escaped.status, 200);
+    assert.deepEqual(await escaped.json(), {
+      profiles: [],
+      posts: [],
+      groups: [],
+    });
+  } finally {
+    await stop(ctx);
+  }
+});
+
 test('HTTP API supports record mutation and profile switching', async () => {
   const ctx = await start();
   try {
