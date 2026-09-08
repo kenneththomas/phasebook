@@ -45,9 +45,10 @@ export function Profile({ id }: { id: string }) {
     .filter(Boolean)
     .join(' ');
   const collegeYear = shortYear(p.collegeGraduationYear);
-  const collegeInfo = [p.college, collegeYear, p.collegeMajor]
-    .filter(Boolean)
-    .join(' ');
+  const collegeLine = [p.college, collegeYear].filter(Boolean).join(' ');
+  const collegeInfo = p.collegeMajor
+    ? ([collegeLine, p.collegeMajor] as const)
+    : collegeLine;
   return (
     <>
       <Title
@@ -104,11 +105,21 @@ export function Profile({ id }: { id: string }) {
               <div key={key}>
                 <dt>{label}:</dt>
                 <dd>
-                  {(key === 'highSchoolInfo'
-                    ? highSchoolInfo
-                    : key === 'collegeInfo'
-                      ? collegeInfo
-                      : p[key]) || 'Not added yet'}
+                  {key === 'highSchoolInfo' ? (
+                    highSchoolInfo || 'Not added yet'
+                  ) : key === 'collegeInfo' ? (
+                    Array.isArray(collegeInfo) ? (
+                      <>
+                        {collegeInfo[0]}
+                        <br />
+                        {collegeInfo[1]}
+                      </>
+                    ) : (
+                      collegeInfo || 'Not added yet'
+                    )
+                  ) : (
+                    p[key] || 'Not added yet'
+                  )}
                 </dd>
               </div>
             ))}
