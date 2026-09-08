@@ -3,6 +3,7 @@ import { Users, Plus } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { NativeSelect } from '@/components/ui/native-select';
 import { useApp, PersonLink } from './context';
+import { Pager, pageRows } from './pagination';
 import {
   mediaURL,
   albumName,
@@ -522,11 +523,13 @@ export function Group({ id }: { id: string }) {
 export function Messages() {
   const { world, me, person, save, open, chat } = useApp();
   const [tab, setTab] = useState('Inbox');
+  const [page, setPage] = useState(1);
   const messages = world.messages
     .filter((m: Row) =>
       tab === 'Inbox' ? m.recipientId === me.id : m.senderId === me.id,
     )
     .sort((a: Row, b: Row) => b.createdAt.localeCompare(a.createdAt));
+  const pagedMessages = pageRows(messages, page, 8);
   return (
     <>
       <Title
@@ -543,7 +546,10 @@ export function Messages() {
       </Title>
       <Tabs
         value={tab}
-        onValueChange={(v) => setTab(String(v))}
+        onValueChange={(v) => {
+          setTab(String(v));
+          setPage(1);
+        }}
         className="period-tabs"
       >
         <TabsList>
@@ -552,7 +558,7 @@ export function Messages() {
         </TabsList>
         {['Inbox', 'Sent'].map((t) => (
           <TabsContent value={t} key={t}>
-            {messages.map((m: Row) => {
+            {pagedMessages.rows.map((m: Row) => {
               const other = tab === 'Inbox' ? m.senderId : m.recipientId;
               return (
                 <button
@@ -577,6 +583,11 @@ export function Messages() {
                 </button>
               );
             })}
+            <Pager
+              page={pagedMessages.page}
+              pageCount={pagedMessages.pageCount}
+              onChange={setPage}
+            />
             {!messages.length && (
               <div className="empty-state">No messages here yet.</div>
             )}
@@ -588,13 +599,15 @@ export function Messages() {
 }
 export function Notifications() {
   const { world, me, person, save, go } = useApp();
+  const [page, setPage] = useState(1);
   const rows = world.notifications
     .filter((n: Row) => n.profileId === me.id)
     .sort((a: Row, b: Row) => b.createdAt.localeCompare(a.createdAt));
+  const pagedRows = pageRows(rows, page, 8);
   return (
     <>
       <Title>Notifications</Title>
-      {rows.map((n: Row) => (
+      {pagedRows.rows.map((n: Row) => (
         <button
           key={n.id}
           className={'message-row ' + (!n.read ? 'unread' : '')}
@@ -610,6 +623,11 @@ export function Notifications() {
           </div>
         </button>
       ))}
+      <Pager
+        page={pagedRows.page}
+        pageCount={pagedRows.pageCount}
+        onChange={setPage}
+      />
       {!rows.length && <div className="empty-state">You’re all caught up.</div>}
     </>
   );

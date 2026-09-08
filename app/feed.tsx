@@ -10,6 +10,7 @@ import {
   type Row,
 } from './shared';
 import { useApp, PersonLink } from './context';
+import { Pager, pageRows } from './pagination';
 
 export function Composer({
   wallId,
@@ -117,12 +118,14 @@ export function Post({ post }: { post: Row }) {
   const { world, me, person, save, remove, open, busy, go } = useApp();
   const [comment, setComment] = useState('');
   const [showComment, setShowComment] = useState(false);
+  const [commentPage, setCommentPage] = useState(1);
   const input = useRef<HTMLInputElement>(null);
   const likes = world.likes.filter((l: Row) => l.postId === post.id);
   const mine = likes.find((l: Row) => l.profileId === me.id);
   const comments = world.comments
     .filter((c: Row) => c.postId === post.id)
     .sort((a: Row, b: Row) => a.createdAt.localeCompare(b.createdAt));
+  const pagedComments = pageRows(comments, commentPage, 3);
   const photo = world.photos.find((p: Row) => p.id === post.photoId);
   return (
     <article className="post" id={'post-' + post.id}>
@@ -213,7 +216,7 @@ export function Post({ post }: { post: Row }) {
             </span>
           </div>
         )}
-        {comments.map((c: Row) => (
+        {pagedComments.rows.map((c: Row) => (
           <div className="feedback comment" key={c.id}>
             <Avatar person={person(c.authorId)} size={32} />
             <div>
@@ -222,6 +225,11 @@ export function Post({ post }: { post: Row }) {
             </div>
           </div>
         ))}
+        <Pager
+          page={pagedComments.page}
+          pageCount={pagedComments.pageCount}
+          onChange={setCommentPage}
+        />
         {(showComment || comments.length > 0) && (
           <form
             className="feedback comment-input"
@@ -269,6 +277,8 @@ export function Feed({
   wallId?: string;
   groupId?: string;
 }) {
+  const [page, setPage] = useState(1);
+  const pagedPosts = pageRows(posts, page, 5);
   return (
     <>
       {compose && (
@@ -278,9 +288,14 @@ export function Feed({
           groupId={groupId}
         />
       )}{' '}
-      {posts.map((p) => (
+      {pagedPosts.rows.map((p) => (
         <Post key={p.id} post={p} />
       ))}
+      <Pager
+        page={pagedPosts.page}
+        pageCount={pagedPosts.pageCount}
+        onChange={setPage}
+      />
       <div className="end-feed">
         {posts.length
           ? "You're all caught up."

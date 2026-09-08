@@ -593,6 +593,23 @@ h1 {
   margin-top: 12px;
   font-size: 11px;
 }
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 0 4px;
+}
+.pager .gray-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 8px;
+}
+.pager .gray-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
 .error-toast {
   position: fixed;
   top: 52px;
