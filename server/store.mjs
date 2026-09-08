@@ -162,6 +162,27 @@ export function createStore(
       return rawPut('media', row);
     });
   }
+  function createPackagedMedia(source, dataUrl) {
+    return transaction(() => {
+      if (
+        !source ||
+        typeof source !== 'object' ||
+        source.sourceType !== 'local'
+      )
+        throw new Error('Invalid packaged media record.');
+      const stored = storeUpload(mediaDir, dataUrl, (path) =>
+        newFiles.push(path),
+      );
+      return rawPut('media', {
+        ...source,
+        id: randomUUID(),
+        sourceType: 'local',
+        sourceLocation: stored.sourceLocation,
+        mimeType: stored.mimeType,
+        cachedLocalPath: null,
+      });
+    });
+  }
   // Only the v1 input adapter accepts old image/album strings. Storage is v2.
   function legacyMedia(source) {
     if (typeof source !== 'string') throw new Error('Invalid legacy image.');
@@ -615,6 +636,7 @@ export function createStore(
   return {
     db,
     mediaDir,
+    transaction,
     get,
     getState,
     search,
@@ -624,6 +646,7 @@ export function createStore(
     writeResult,
     importState,
     createMedia,
+    createPackagedMedia,
     writePhoto,
     writePhotoResult,
     resolveExternal,
@@ -638,6 +661,9 @@ export function createStore(
         path: localPath(mediaDir, row.sourceLocation),
         mimeType: row.mimeType,
       };
+    },
+    bundledMediaFile(sourceLocation) {
+      return resolve('public', `.${sourceLocation}`);
     },
     remove(table, id) {
       checkTable(table);

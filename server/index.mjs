@@ -3,6 +3,11 @@ import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createStore, schema } from './store.mjs';
+import {
+  exportProfilePackage,
+  previewProfilePackage,
+  importProfilePackage,
+} from './profile-package.mjs';
 
 export function createApp(store, middleware = null) {
   const root = resolve('dist');
@@ -65,6 +70,22 @@ export function createApp(store, middleware = null) {
         }
         if (req.method === 'GET' && url.pathname === '/api/search')
           return json(200, store.search(url.searchParams.get('q') ?? ''));
+        const packageExport = url.pathname.match(
+          /^\/api\/profile-packages\/([^/]+)$/,
+        );
+        if (req.method === 'GET' && packageExport) {
+          const result = exportProfilePackage(
+            store,
+            decodeURIComponent(packageExport[1]),
+          );
+          res.writeHead(200, {
+            'Content-Type': 'application/vnd.phasebook.profile+zip',
+            'Content-Disposition': `attachment; filename="${result.filename}"`,
+            'Content-Length': result.buffer.length,
+            'Cache-Control': 'no-store',
+          });
+          return res.end(result.buffer);
+        }
         const mediaMatch = url.pathname.match(/^\/api\/media\/([^/]+)$/);
         if (req.method === 'GET' && mediaMatch) {
           const file = store.mediaFile(decodeURIComponent(mediaMatch[1]));
@@ -80,14 +101,38 @@ export function createApp(store, middleware = null) {
           return json(404, { error: 'Not found.' });
         const chunks = [];
         let bytes = 0;
+        const profilePackageUpload = url.pathname.startsWith(
+          '/api/profile-packages/',
+        );
         for await (const chunk of req) {
           bytes += chunk.length;
-          if (bytes > 25_000_000)
-            return json(413, { error: 'JSON is larger than 25 MB.' });
+          if (bytes > (profilePackageUpload ? 50_000_000 : 25_000_000))
+            return json(413, {
+              error: profilePackageUpload
+                ? 'Profile package is larger than 50 MB.'
+                : 'JSON is larger than 25 MB.',
+            });
           chunks.push(chunk);
         }
+        const rawBody = Buffer.concat(chunks);
+        if (
+          req.method === 'POST' &&
+          url.pathname === '/api/profile-packages/preview'
+        )
+          return json(200, previewProfilePackage(store, rawBody));
+        if (
+          req.method === 'POST' &&
+          url.pathname === '/api/profile-packages/import'
+        ) {
+          const result = importProfilePackage(
+            store,
+            rawBody,
+            url.searchParams.get('strategy') ?? 'cancel',
+          );
+          return json(200, result);
+        }
         // Decode once so multi-byte names survive HTTP chunk boundaries.
-        const body = Buffer.concat(chunks).toString('utf8');
+        const body = rawBody.toString('utf8');
         const value = body ? JSON.parse(body) : {};
         if (req.method === 'POST' && url.pathname === '/api/photos/save') {
           const { record, notification, album } = store.writePhotoResult(
