@@ -1429,3 +1429,10 @@ h1 {
     grid-template-columns: 100px 1fr;
   }
 }
+.network-filters { display: flex; flex-wrap: wrap; gap: 8px 12px; padding: 10px; background: #f2f2f2; border-top: 1px solid #ccc; border-bottom: 1px solid #ddd; }
+.network-filters label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: #666; width: 145px; }
+.network-filters input, .network-filters select { width: 100%; padding: 3px; border: 1px solid #bdc7d8; background: white; color: #333; font: inherit; }
+.network-person { flex: 1; min-width: 0; }
+.network-admin { margin-top: 18px; padding: 10px 0; border-top: 1px dashed #bbb; color: #777; display: flex; flex-wrap: wrap; gap: 12px; font-size: 11px; }
+.network-edit { color: #777; font-size: 10px; }
+.network-affiliations { padding: 8px 0; }

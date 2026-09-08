@@ -5,6 +5,8 @@ import { AppContext } from './context';
 // oxlint-disable-next-line typescript/no-explicit-any
 export type Row = { id: string; [key: string]: any };
 export type CollectionName =
+  | 'networks'
+  | 'networkMemberships'
   | 'profiles'
   | 'friendships'
   | 'posts'
@@ -29,7 +31,10 @@ export type MutationResult = {
   deletes: Partial<Record<CollectionName, string[]>>;
   settings?: World['settings'];
 };
-export type SearchResult = Pick<World, 'profiles' | 'posts' | 'groups'>;
+export type SearchResult = Pick<
+  World,
+  'profiles' | 'posts' | 'groups' | 'networks'
+>;
 
 const idIndexes = new WeakMap<Row[], Map<string, Row>>();
 const fieldIndexes = new WeakMap<Row[], Map<string, Map<unknown, Row[]>>>();
@@ -62,6 +67,8 @@ export function rowsBy(rows: Row[], field: string, value: unknown) {
 }
 
 const collections: CollectionName[] = [
+  'networks',
+  'networkMemberships',
   'profiles',
   'friendships',
   'posts',
@@ -80,6 +87,10 @@ const collections: CollectionName[] = [
 const references: Partial<
   Record<CollectionName, Record<string, [CollectionName, 'cascade' | 'null']>>
 > = {
+  networkMemberships: {
+    profileId: ['profiles', 'cascade'],
+    networkId: ['networks', 'cascade'],
+  },
   friendships: {
     profileId: ['profiles', 'cascade'],
     friendId: ['profiles', 'cascade'],

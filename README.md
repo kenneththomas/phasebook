@@ -32,6 +32,7 @@ The same local URL serves Vite's development interface. Refresh after frontend e
 - **Friends** lets you add/remove relationships and send and confirm requests.
 - **Photos** contains albums; upload a local JPG, PNG or WebP (up to 3 MB) or use an external image URL, edit its caption, or attach it to a post. Albums have owners and editable names and cover images.
 - **Events** supports creation, editing and Attending/Maybe/Not Attending replies.
+- **Networks** provides school, workplace and regional people directories, including stub members. Profile affiliations link to searchable directories; World management controls create networks and edit memberships. See [historical research and design](docs/networks.md) for the intentional earlier-era regional-network extension.
 - **Groups** supports creation, editing, membership and group posts.
 - **Messages** and the bottom **Chat** bar save conversations locally. Switch profiles to write the other side of a conversation. Online indicators are simulated, and there are no automatic real-user replies.
 - **Notifications** includes seeded activity and new likes, comments, Wall posts and friend requests; opening entries marks them read.
@@ -91,3 +92,5 @@ This is a small single-computer sandbox. It intentionally has no multi-user sync
 The chosen period combines the February 2010 home redesign with the classic Wall/Info/Photos/Boxes profile. The typography and 980px layout approximate period screenshots; the wordmark and simulation controls are deliberate additions. It is not an exact archived Facebook build and is not affiliated with Meta.
 
 See [the historical reference notes](docs/historical-references.md), including contemporary Facebook announcements, the February 2010 annotated homepage, and preserved screenshots.
+
+Network schema updates are additive: existing worlds gain empty network tables and keep their data. New demo worlds contain overlapping networks and two stub members; original demo city and hometown labels include state abbreviations. Profile packages include only the exported profile's affiliations and referenced network definitions.

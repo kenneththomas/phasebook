@@ -17,7 +17,9 @@ import {
   profileDefaults,
   validateRecord,
   createSchema,
+  createNetworkSchema,
 } from './schema.mjs';
+import { networkFields, networkDirectory } from '../lib/networks.mjs';
 import { schema as legacySchema } from './legacy-schema.mjs';
 import {
   validateMedia,
@@ -101,6 +103,17 @@ export function createStore(
   function rawPut(table, record) {
     validateRecord(table, record);
     if (table === 'media') validateMedia(record, mediaDir);
+    if (table === 'networkMemberships') {
+      const network = get('networks', record.networkId);
+      const fields = networkFields[network?.type];
+      if (fields && Object.keys(JSON.parse(record.metadata)).some(key => !fields.includes(key)))
+        throw new Error('Metadata does not match the network type.');
+    }
+    if (table === 'networks') {
+      const previous = get('networks', record.id);
+      if (previous && previous.type !== record.type && db.prepare('SELECT 1 FROM networkMemberships WHERE networkId=? LIMIT 1').get(record.id))
+        throw new Error('Remove memberships before changing the network type.');
+    }
     const fields = ['id', 'externalId', ...Object.keys(schema[table])];
     db.prepare(
       `INSERT INTO ${table} (${fields.join(',')}) VALUES (${fields.map(() => '?').join(',')}) ON CONFLICT(id) DO UPDATE SET ${fields
@@ -205,6 +218,8 @@ export function createStore(
       }
       return { ...profileDefaults, state: 'full', ...row };
     }
+    if (table === 'networks') return { city: '', region: '', country: '', description: '', createdAt: new Date().toISOString(), ...row };
+    if (table === 'networkMemberships') return { metadata: '{}', createdAt: new Date().toISOString(), ...row };
     if (table === 'groups') return { creatorId: null, ...row };
     if (table === 'photos') {
       if (Object.hasOwn(row, 'src')) {
@@ -340,25 +355,26 @@ export function createStore(
       ]),
     ),
   });
-  function search(query, limit = 50) {
+  function search(query, limit = 50, networkId = '') {
     if (typeof query !== 'string' || !query.trim())
-      return { profiles: [], posts: [], groups: [] };
+      return { profiles: [], posts: [], groups: [], networks: [] };
     const normalizedLimit = Math.min(Math.max(Number(limit) || 50, 1), 100);
     const pattern = `%${query.trim().replace(/[\\%_]/g, '\\$&')}%`;
     return {
       profiles: db
         .prepare(
           `SELECT * FROM profiles
-           WHERE name LIKE ? ESCAPE '\\' OR city LIKE ? ESCAPE '\\' OR education LIKE ? ESCAPE '\\'
+           WHERE (name LIKE ? ESCAPE '\\' OR city LIKE ? ESCAPE '\\' OR education LIKE ? ESCAPE '\\' OR id IN (SELECT m.profileId FROM networkMemberships m JOIN networks n ON n.id=m.networkId WHERE n.name LIKE ? ESCAPE '\\')) AND (? = '' OR id IN (SELECT profileId FROM networkMemberships WHERE networkId = ?))
            ORDER BY name COLLATE NOCASE, id LIMIT ?`,
         )
-        .all(pattern, pattern, pattern, normalizedLimit),
+        .all(pattern, pattern, pattern, pattern, networkId, networkId, normalizedLimit),
       posts: db
         .prepare(
           `SELECT * FROM posts WHERE body LIKE ? ESCAPE '\\'
            ORDER BY createdAt DESC, id LIMIT ?`,
         )
         .all(pattern, normalizedLimit),
+      networks: db.prepare("SELECT * FROM networks WHERE name LIKE ? ESCAPE '\\' ORDER BY name COLLATE NOCASE LIMIT ?").all(pattern, normalizedLimit),
       groups: db
         .prepare(
           `SELECT * FROM groups WHERE name LIKE ? ESCAPE '\\'
@@ -384,8 +400,9 @@ export function createStore(
       typeof value.settings?.activeProfileId !== 'string'
     )
       throw new Error('Expected a Phasebook schemaVersion 1 or 2 export.');
+    value = { ...value, networks: value.networks ?? [], networkMemberships: value.networkMemberships ?? [] };
     const collections =
-      value.schemaVersion === 1 ? Object.keys(legacySchema) : tables;
+      value.schemaVersion === 1 ? [...Object.keys(legacySchema), 'networks', 'networkMemberships'] : tables;
     if (
       !collections.every((t) => Array.isArray(value[t])) ||
       !value.profiles.length
@@ -560,7 +577,7 @@ export function createStore(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='profiles'",
       )
       .get();
-    if (version > 3)
+    if (version > 4)
       throw new Error(
         'This database was created by a newer Phasebook version.',
       );
@@ -634,6 +651,10 @@ export function createStore(
     throw error;
   }
   return {
+    if (db.prepare('PRAGMA user_version').get().user_version === 3) {
+      if (filename !== ':memory:') db.prepare('VACUUM INTO ?').run(resolve(dirname(filename), `migration-v3-${Date.now()}-${randomUUID().slice(0,8)}.sqlite`));
+      transaction(() => { createNetworkSchema(db); db.exec('PRAGMA user_version=4;'); });
+    }
     db,
     mediaDir,
     transaction,
@@ -653,6 +674,7 @@ export function createStore(
     ensureProfileStub,
     hydrateProfile,
     putExternal,
+    networkDirectory: (id, filters = {}) => networkDirectory(getState(), id, filters),
     mediaFile(id) {
       const row = get('media', id);
       if (!row || row.sourceType !== 'local')

@@ -1,3 +1,4 @@
+import { NetworkEditor } from './networks';
 import { useState } from 'react';
 import {
   Dialog,
@@ -33,6 +34,8 @@ export function Modal({ modal }: { modal: ModalState }) {
     switch: 'Log In · Choose a Profile',
     profile: modal.row ? 'Edit Profile' : 'Create a Profile',
     manage: 'Manage this world',
+    network: 'Manage Network',
+    networkMembership: 'Manage Network Membership',
     post: 'Edit Post',
     photo: 'Upload a Photo',
     viewPhoto: modal.row ? albumName(world, modal.row.albumId) : 'Photo',
@@ -68,6 +71,12 @@ export function Modal({ modal }: { modal: ModalState }) {
             <Switcher />
           ) : modal.kind === 'manage' ? (
             <Manage />
+          ) : ['network', 'networkMembership'].includes(modal.kind) ? (
+            <NetworkEditor
+              key={modal.kind + (modal.row?.id || 'new')}
+              kind={modal.kind}
+              row={modal.row}
+            />
           ) : modal.kind === 'viewPhoto' ? (
             <PhotoViewer row={modal.row!} />
           ) : (
@@ -291,6 +300,30 @@ function Manage() {
           Create Profile
         </button>
       </div>
+      <h3>Networks</h3>
+      <p className="form-help">
+        Manage school, workplace and regional affiliations, including stub
+        members.
+      </p>
+      <button className="gray-button" onClick={() => open({ kind: 'network' })}>
+        Create Network
+      </button>
+      <button
+        className="gray-button"
+        onClick={() => open({ kind: 'networkMembership' })}
+      >
+        Add Network Membership
+      </button>
+      <div className="admin-profiles">
+        {world.networks.map((n) => (
+          <div key={n.id}>
+            <button onClick={() => open({ kind: 'network', row: n })}>
+              {n.name}
+            </button>
+          </div>
+        ))}
+      </div>
+      <h3>Profiles</h3>
       <div className="admin-profiles">
         {world.profiles.map((p) => (
           <div key={p.id} className="button-row">

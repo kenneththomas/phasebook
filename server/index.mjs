@@ -69,7 +69,7 @@ export function createApp(store, middleware = null) {
           );
         }
         if (req.method === 'GET' && url.pathname === '/api/search')
-          return json(200, store.search(url.searchParams.get('q') ?? ''));
+          return json(200, store.search(url.searchParams.get('q') ?? '', 50, url.searchParams.get('network') ?? ''));
         const packageExport = url.pathname.match(
           /^\/api\/profile-packages\/([^/]+)$/,
         );

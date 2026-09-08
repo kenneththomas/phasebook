@@ -158,6 +158,11 @@ export function exportProfilePackage(store, profileId, now = new Date()) {
   const ownedEvents = new Set(
     state.events.filter((r) => r.creatorId === rootId).map((r) => r.id),
   );
+  for (const row of state.networkMemberships)
+    if (row.profileId === rootId) {
+      add('networkMemberships', row);
+      add('networks', store.get('networks', row.networkId));
+    }
   for (const row of state.groups)
     if (ownedGroups.has(row.id)) add('groups', row);
   for (const row of state.groupMembers)
@@ -324,6 +329,10 @@ export function validateProfilePackage(buffer) {
     refs.set(p.externalId, p);
   }
   const entities = data.entities;
+  if (entities && typeof entities === 'object') {
+    entities.networks ??= [];
+    entities.networkMemberships ??= [];
+  }
   if (
     !entities ||
     portableTables.some((t) => !Array.isArray(entities[t])) ||
@@ -433,7 +442,7 @@ export function importProfilePackage(store, buffer, strategy = 'cancel') {
     );
     const rootExternalId = remapAll ? randomUUID() : originalRoot;
     if (remapAll)
-      for (const table of portableTables)
+      for (const table of portableTables.filter((t) => t !== 'networks'))
         for (const row of parsed.data.entities[table])
           remaps[table].set(row.externalId, randomUUID());
     const mapId = (table, id) =>
@@ -486,15 +495,25 @@ export function importProfilePackage(store, buffer, strategy = 'cancel') {
         'media',
         mapId('media', profile.avatarMediaId),
       ).id;
-    store.hydrateProfile(rootExternalId, profile);
+    if (profile.state === 'stub') {
+      const existing = store.resolveExternal('profiles', rootExternalId);
+      if (existing?.state !== 'full')
+        store.put('profiles', { ...profile, id: existing?.id ?? randomUUID() });
+    } else store.hydrateProfile(rootExternalId, profile);
     for (const table of portableTables.filter((t) => t !== 'media'))
       for (const source of parsed.data.entities[table]) {
+        if (
+          table === 'networks' &&
+          store.resolveExternal(table, source.externalId)
+        )
+          continue;
         const row = { ...source, externalId: mapId(table, source.externalId) };
         for (const [field, target] of Object.entries(references[table] ?? {}))
           row[field] = mapId(target, row[field]);
         const naturalFields = {
           friendships: ['profileId', 'friendId'],
           groupMembers: ['groupId', 'profileId'],
+          networkMemberships: ['networkId', 'profileId'],
           likes: ['postId', 'profileId'],
           eventGuests: ['eventId', 'profileId'],
         }[table];
@@ -521,6 +540,7 @@ export function importProfilePackage(store, buffer, strategy = 'cancel') {
             );
           if (equivalent) {
             const changes = {};
+            if (table === 'networkMemberships') changes.metadata = row.metadata;
             if (Object.hasOwn(row, 'status')) changes.status = row.status;
             if (Object.keys(changes).length)
               store.put(table, { ...equivalent, ...changes });

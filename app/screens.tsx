@@ -1,3 +1,4 @@
+import { ProfileNetworks } from './networks';
 import { useEffect, useState } from 'react';
 import { Users, Plus } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -52,6 +53,7 @@ export function Profile({ id }: { id: string }) {
       <p className="profile-bio">
         {p.state === 'stub' ? 'Full profile data is unavailable.' : p.bio}
       </p>
+      <ProfileNetworks profileId={id} />
       <Tabs key={id} defaultValue="Wall" className="period-tabs">
         <TabsList>
           {['Wall', 'Info', 'Photos', 'Boxes'].map((t) => (
@@ -72,6 +74,7 @@ export function Profile({ id }: { id: string }) {
           />
         </TabsContent>
         <TabsContent value="Info">
+          <ProfileNetworks profileId={id} details />
           <h2 className="info-heading">Basic Information</h2>
           <dl className="profile-info">
             {[
@@ -636,17 +639,23 @@ export function Notifications() {
 }
 export function SearchResults({ query }: { query: string }) {
   const { world, go } = useApp();
+  const [networkId, setNetworkId] = useState('');
   const [results, setResults] = useState<SearchResult | null>(null);
   const [error, setError] = useState('');
   useEffect(() => {
     let active = true;
-    request<SearchResult>('search?q=' + encodeURIComponent(query))
+    request<SearchResult>(
+      'search?q=' +
+        encodeURIComponent(query) +
+        '&network=' +
+        encodeURIComponent(networkId),
+    )
       .then((value) => active && setResults(value))
       .catch((reason: Error) => active && setError(reason.message));
     return () => {
       active = false;
     };
-  }, [query, world]);
+  }, [query, world, networkId]);
   const people = results?.profiles ?? [];
   const posts = results?.posts ?? [];
   const groups = results?.groups ?? [];
@@ -656,6 +665,30 @@ export function SearchResults({ query }: { query: string }) {
       <p className="list-caption">Results for “{query}”</p>
       {!results && !error && <p className="empty-state">Searching…</p>}
       {error && <p className="error">{error}</p>}
+      <label className="list-caption">
+        Network{' '}
+        <select
+          aria-label="Filter people by network"
+          value={networkId}
+          onChange={(e) => setNetworkId(e.target.value)}
+        >
+          <option value="">All networks</option>
+          {world.networks.map((n) => (
+            <option key={n.id} value={n.id}>
+              {n.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {(results?.networks ?? []).map((n) => (
+        <div className="directory-row" key={n.id}>
+          <Users size={24} />
+          <button className="person-name" onClick={() => go('network', n.id)}>
+            {n.name}
+          </button>
+          <span className="muted">Network</span>
+        </div>
+      ))}
       {people.map((p: Row) => (
         <div className="directory-row" key={p.id}>
           <Avatar person={p} />

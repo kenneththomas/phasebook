@@ -1,3 +1,4 @@
+import { Networks } from './networks';
 import { useEffect, useRef, useState } from 'react';
 import {
   Newspaper,
@@ -90,6 +91,8 @@ export default function App() {
       ({
         home: 'Home',
         profile: 'Profile',
+        networks: 'Networks',
+        network: 'Network',
         groups: 'Groups',
         group: 'Group',
         photos: 'Photos',
@@ -218,6 +221,7 @@ export default function App() {
     { icon: CalendarDays, label: 'Events', view: 'events' },
     { icon: Images, label: 'Photos', view: 'photos' },
     { icon: Users, label: 'Friends', view: 'friends', count: pending },
+    { icon: Users, label: 'Networks', view: 'networks' },
     { icon: Users, label: 'Groups', view: 'groups' },
   ];
   let content: React.ReactNode;
@@ -233,6 +237,15 @@ export default function App() {
       break;
     case 'events':
       content = <Events />;
+      break;
+    case 'networks':
+    case 'network':
+      content = (
+        <Networks
+          key={route.id || 'all'}
+          id={route.view === 'network' ? route.id : undefined}
+        />
+      );
       break;
     case 'groups':
       content = <Groups />;

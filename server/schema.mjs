@@ -39,6 +39,21 @@ export const schema = {
     ),
     avatarMediaId: mediaRef(true),
   },
+  networks: {
+    name: text,
+    type: text,
+    city: text,
+    region: text,
+    country: text,
+    description: text,
+    createdAt: text,
+  },
+  networkMemberships: {
+    profileId: ref('profiles'),
+    networkId: ref('networks'),
+    metadata: text,
+    createdAt: text,
+  },
   friendships: {
     profileId: ref('profiles'),
     friendId: ref('profiles'),
@@ -156,18 +171,60 @@ export function validateRecord(table, row) {
     )
       throw new Error(`${field} must be a date.`);
   }
+  if (table === 'networks' && !/^[a-z][a-z_-]{0,49}$/.test(row.type))
+    throw new Error('Invalid network type.');
+  if (table === 'networkMemberships') {
+    let metadata;
+    try {
+      metadata = JSON.parse(row.metadata);
+    } catch {
+      throw new Error('Invalid membership metadata.');
+    }
+    if (
+      !metadata ||
+      typeof metadata !== 'object' ||
+      Array.isArray(metadata) ||
+      Object.values(metadata).some(
+        (v) => typeof v !== 'string' || v.length > 500,
+      )
+    )
+      throw new Error('Membership metadata must contain text fields.');
+    for (const key of ['classYear', 'startYear', 'endYear'])
+      if (metadata[key] && !/^(18|19|20|21)[0-9]{2}$/.test(metadata[key]))
+        throw new Error('Enter a four-digit membership year.');
+    if (
+      metadata.startYear &&
+      metadata.endYear &&
+      metadata.startYear > metadata.endYear
+    )
+      throw new Error('End year must not precede start year.');
+  }
   if (table === 'friendships' && row.profileId === row.friendId)
     throw new Error('Choose two different profiles.');
+}
+export function createNetworkSchema(db) {
+  for (const table of ['networks', 'networkMemberships']) {
+    db.exec(
+      `CREATE TABLE IF NOT EXISTS ${table} (id TEXT PRIMARY KEY NOT NULL, externalId TEXT NOT NULL UNIQUE, ${Object.entries(
+        schema[table],
+      )
+        .map(([k, v]) => `${k} ${v}`)
+        .join(',')})`,
+    );
+  }
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS network_member_pair ON networkMemberships(networkId,profileId);
+    CREATE INDEX IF NOT EXISTS idx_network_members_profile ON networkMemberships(profileId,networkId);`);
 }
 export function createSchema(db) {
   for (const [table, fields] of Object.entries(schema))
     db.exec(
-      `CREATE TABLE ${table} (id TEXT PRIMARY KEY NOT NULL, externalId TEXT NOT NULL UNIQUE CHECK(length(externalId)>0), ${Object.entries(
+      `CREATE TABLE IF NOT EXISTS ${table} (id TEXT PRIMARY KEY NOT NULL, externalId TEXT NOT NULL UNIQUE CHECK(length(externalId)>0), ${Object.entries(
         fields,
       )
         .map(([k, v]) => `${k} ${v}`)
         .join(',')})`,
     );
+  createNetworkSchema(db);
   db.exec(`CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id=1), activeProfileId TEXT NOT NULL REFERENCES profiles(id) DEFERRABLE INITIALLY DEFERRED);
     CREATE UNIQUE INDEX friendship_pair ON friendships(min(profileId,friendId),max(profileId,friendId));
     CREATE UNIQUE INDEX like_pair ON likes(postId,profileId);
@@ -185,5 +242,5 @@ export function createSchema(db) {
     CREATE INDEX idx_notifications_profile ON notifications(profileId,read,createdAt);
     CREATE INDEX idx_event_guests_event ON eventGuests(eventId,status);
     CREATE INDEX idx_group_members_profile ON groupMembers(profileId,groupId);
-    PRAGMA user_version=3;`);
+    PRAGMA user_version=4;`);
 }
