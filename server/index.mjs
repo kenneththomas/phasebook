@@ -271,7 +271,7 @@ export function createApp(store, middleware = null) {
           store.remove(match[1], id);
           result = changes({}, { [match[1]]: [id] });
         } else if (req.method === 'POST' && !match[2]) {
-          const { record, notification, story, photo, album } =
+          const { record, notification, stories, photo, album } =
             match[1] === 'profiles'
               ? store.writeProfileResult(value)
               : store.writeResult(match[1], value);
@@ -285,7 +285,7 @@ export function createApp(store, middleware = null) {
                   networkMemberships: store.getState().networkMemberships,
                 }
               : {}),
-            ...(story ? { posts: [story] } : {}),
+            ...(stories?.length ? { posts: stories } : {}),
             ...(media.length ? { media } : {}),
             ...(notification ? { notifications: [notification] } : {}),
           });

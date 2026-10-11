@@ -729,7 +729,7 @@ export function createStore(
         actor,
         body,
         postId = null,
-        story = null;
+        stories = [];
       if (!previous && ['comments', 'likes'].includes(table)) {
         const post = get('posts', record.postId);
         if (post) {
@@ -767,16 +767,29 @@ export function createStore(
         body = 'accepted your friend request.';
         const requester = get('profiles', record.profileId);
         const accepter = get('profiles', record.friendId);
-        if (requester && accepter)
-          story = put('posts', {
-            id: randomUUID(),
-            authorId: accepter.id,
-            wallId: accepter.id,
-            groupId: null,
-            body: `is now friends with ${String(requester.name || 'a new friend')}.`,
-            photoId: null,
-            createdAt: worldDate ?? new Date().toISOString(),
-          });
+        if (requester && accepter) {
+          const createdAt = worldDate ?? new Date().toISOString();
+          stories = [
+            put('posts', {
+              id: randomUUID(),
+              authorId: accepter.id,
+              wallId: accepter.id,
+              groupId: null,
+              body: `is now friends with ${String(requester.name || 'a new friend')}.`,
+              photoId: null,
+              createdAt,
+            }),
+            put('posts', {
+              id: randomUUID(),
+              authorId: requester.id,
+              wallId: requester.id,
+              groupId: null,
+              body: `is now friends with ${String(accepter.name || 'a new friend')}.`,
+              photoId: null,
+              createdAt,
+            }),
+          ];
+        }
       }
       let notification = null;
       if (recipient && actor && recipient !== actor) {
@@ -792,7 +805,7 @@ export function createStore(
             read: 0,
           });
       }
-      return { record, notification, story };
+      return { record, notification, stories };
     });
   }
   function write(table, input) {
