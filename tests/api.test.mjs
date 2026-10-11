@@ -68,6 +68,61 @@ const request = (base, path, options = {}) =>
     headers: { 'content-type': 'application/json', ...options.headers },
   });
 
+test('batch photo API saves one album and rolls back an invalid batch', async () => {
+  const ctx = await start();
+  try {
+    const media = ctx.store.createMedia({
+      sourceType: 'bundled',
+      sourceLocation: '/assets/avatar-2.jpg',
+    });
+    const photo = {
+      ownerId: 'p1',
+      albumId: '',
+      mediaId: media.id,
+      caption: 'First',
+      createdAt: '2010-03-18T10:00:00Z',
+    };
+    const send = (photos, albumName = 'Trip') =>
+      request(ctx.base, '/api/photos/batch', {
+        method: 'POST',
+        body: JSON.stringify({ photos, albumName }),
+      });
+    const response = await send([photo, { ...photo, caption: 'Second' }]);
+    assert.equal(response.status, 200);
+    const { upserts } = await response.json();
+    assert.equal(upserts.photos.length, 2);
+    assert.equal(upserts.albums.length, 1);
+    assert.equal(upserts.media.length, 1);
+    assert.deepEqual(
+      upserts.photos.map((p) => p.caption),
+      ['First', 'Second'],
+    );
+    assert.ok(upserts.photos.every((p) => p.albumId === upserts.albums[0].id));
+    const appended = await send([{ ...photo, albumId: upserts.albums[0].id }]);
+    assert.equal(appended.status, 200);
+    assert.equal(ctx.store.getState().albums.length, 1);
+    const before = ctx.store.exportState();
+    assert.equal(
+      (await send([photo, { ...photo, mediaId: 'missing' }], 'Invalid batch'))
+        .status,
+      400,
+    );
+    assert.deepEqual(ctx.store.exportState(), before);
+    assert.equal(
+      (await send([{ ...photo, ownerId: 'p2', albumId: upserts.albums[0].id }]))
+        .status,
+      400,
+    );
+    assert.equal((await send([])).status, 400);
+    assert.equal(
+      (await send(Array.from({ length: 101 }, () => photo))).status,
+      400,
+    );
+  } finally {
+    await stop(ctx);
+  }
+});
+
 test('HTTP API exposes state and export with expected headers', async () => {
   const ctx = await start();
   try {
@@ -182,7 +237,7 @@ test('accepting a friend request returns the friendship story with the mutation'
     assert.equal(story.authorId, 'p2');
     assert.equal(story.wallId, 'p2');
     assert.equal(story.groupId, null);
-  assert.equal(story.body, 'is now friends with API p1.');
+    assert.equal(story.body, 'is now friends with API p1.');
     assert.equal(story.photoId, null);
   } finally {
     await stop(ctx);

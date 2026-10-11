@@ -107,12 +107,23 @@ export function createStore(
     if (table === 'networkMemberships') {
       const network = get('networks', record.networkId);
       const fields = networkFields[network?.type];
-      if (fields && Object.keys(JSON.parse(record.metadata)).some(key => !fields.includes(key)))
+      if (
+        fields &&
+        Object.keys(JSON.parse(record.metadata)).some(
+          (key) => !fields.includes(key),
+        )
+      )
         throw new Error('Metadata does not match the network type.');
     }
     if (table === 'networks') {
       const previous = get('networks', record.id);
-      if (previous && previous.type !== record.type && db.prepare('SELECT 1 FROM networkMemberships WHERE networkId=? LIMIT 1').get(record.id))
+      if (
+        previous &&
+        previous.type !== record.type &&
+        db
+          .prepare('SELECT 1 FROM networkMemberships WHERE networkId=? LIMIT 1')
+          .get(record.id)
+      )
         throw new Error('Remove memberships before changing the network type.');
     }
     const fields = ['id', 'externalId', ...Object.keys(schema[table])];
@@ -219,8 +230,21 @@ export function createStore(
       }
       return { ...profileDefaults, state: 'full', ...row };
     }
-    if (table === 'networks') return { city: '', region: '', country: '', description: '', createdAt: worldDate ?? new Date().toISOString(), ...row };
-    if (table === 'networkMemberships') return { metadata: '{}', createdAt: worldDate ?? new Date().toISOString(), ...row };
+    if (table === 'networks')
+      return {
+        city: '',
+        region: '',
+        country: '',
+        description: '',
+        createdAt: worldDate ?? new Date().toISOString(),
+        ...row,
+      };
+    if (table === 'networkMemberships')
+      return {
+        metadata: '{}',
+        createdAt: worldDate ?? new Date().toISOString(),
+        ...row,
+      };
     if (table === 'groups') return { creatorId: null, ...row };
     if (table === 'photos') {
       if (Object.hasOwn(row, 'src')) {
@@ -288,7 +312,15 @@ export function createStore(
       if (
         table === 'profiles' &&
         record.state === 'full' &&
-        ['highSchool', 'highSchoolGraduationYear', 'college', 'collegeGraduationYear', 'collegeMajor', 'jobTitle', 'employer'].some((field) => Object.hasOwn(input, field))
+        [
+          'highSchool',
+          'highSchoolGraduationYear',
+          'college',
+          'collegeGraduationYear',
+          'collegeMajor',
+          'jobTitle',
+          'employer',
+        ].some((field) => Object.hasOwn(input, field))
       )
         syncProfileNetworks(record, worldDate);
       return saved;
@@ -319,7 +351,9 @@ export function createStore(
     ].filter(({ name }) => name.trim());
     for (const affiliation of affiliations) {
       const network = db
-        .prepare('SELECT * FROM networks WHERE type=? AND name=? COLLATE NOCASE LIMIT 1')
+        .prepare(
+          'SELECT * FROM networks WHERE type=? AND name=? COLLATE NOCASE LIMIT 1',
+        )
         .get(affiliation.type, affiliation.name.trim());
       const target =
         network ??
@@ -338,7 +372,9 @@ export function createStore(
         Object.entries(affiliation.metadata).filter(([, value]) => value),
       );
       const existing = db
-        .prepare('SELECT * FROM networkMemberships WHERE profileId=? AND networkId=?')
+        .prepare(
+          'SELECT * FROM networkMemberships WHERE profileId=? AND networkId=?',
+        )
         .get(profile.id, target.id);
       rawPut('networkMemberships', {
         id: existing?.id ?? randomUUID(),
@@ -431,14 +467,26 @@ export function createStore(
            WHERE (name LIKE ? ESCAPE '\\' OR city LIKE ? ESCAPE '\\' OR education LIKE ? ESCAPE '\\' OR id IN (SELECT m.profileId FROM networkMemberships m JOIN networks n ON n.id=m.networkId WHERE n.name LIKE ? ESCAPE '\\')) AND (? = '' OR id IN (SELECT profileId FROM networkMemberships WHERE networkId = ?))
            ORDER BY name COLLATE NOCASE, id LIMIT ?`,
         )
-        .all(pattern, pattern, pattern, pattern, networkId, networkId, normalizedLimit),
+        .all(
+          pattern,
+          pattern,
+          pattern,
+          pattern,
+          networkId,
+          networkId,
+          normalizedLimit,
+        ),
       posts: db
         .prepare(
           `SELECT * FROM posts WHERE body LIKE ? ESCAPE '\\'
            ORDER BY createdAt DESC, id LIMIT ?`,
         )
         .all(pattern, normalizedLimit),
-      networks: db.prepare("SELECT * FROM networks WHERE name LIKE ? ESCAPE '\\' ORDER BY name COLLATE NOCASE LIMIT ?").all(pattern, normalizedLimit),
+      networks: db
+        .prepare(
+          "SELECT * FROM networks WHERE name LIKE ? ESCAPE '\\' ORDER BY name COLLATE NOCASE LIMIT ?",
+        )
+        .all(pattern, normalizedLimit),
       groups: db
         .prepare(
           `SELECT * FROM groups WHERE name LIKE ? ESCAPE '\\'
@@ -449,7 +497,10 @@ export function createStore(
   }
   function exportState() {
     const state = getState();
-    state.generationHistory = db.prepare('SELECT payload FROM generationRuns ORDER BY rowid').all().map(row => JSON.parse(row.payload));
+    state.generationHistory = db
+      .prepare('SELECT payload FROM generationRuns ORDER BY rowid')
+      .all()
+      .map((row) => JSON.parse(row.payload));
     if (!state.generationHistory.length) delete state.generationHistory;
     const local = state.media.filter((m) => m.sourceType === 'local');
     if (local.length)
@@ -466,9 +517,15 @@ export function createStore(
       typeof value.settings?.activeProfileId !== 'string'
     )
       throw new Error('Expected a Phasebook schemaVersion 1 or 2 export.');
-    value = { ...value, networks: value.networks ?? [], networkMemberships: value.networkMemberships ?? [] };
+    value = {
+      ...value,
+      networks: value.networks ?? [],
+      networkMemberships: value.networkMemberships ?? [],
+    };
     const collections =
-      value.schemaVersion === 1 ? [...Object.keys(legacySchema), 'networks', 'networkMemberships'] : tables;
+      value.schemaVersion === 1
+        ? [...Object.keys(legacySchema), 'networks', 'networkMemberships']
+        : tables;
     if (
       !collections.every((t) => Array.isArray(value[t])) ||
       !value.profiles.length
@@ -534,12 +591,31 @@ export function createStore(
       // Imported audit trails are informational: never trust imported inverse writes.
       db.exec('DELETE FROM generationRuns');
       if (value.generationHistory !== undefined) {
-        if (!Array.isArray(value.generationHistory) || value.generationHistory.length > 20000)
+        if (
+          !Array.isArray(value.generationHistory) ||
+          value.generationHistory.length > 20000
+        )
           throw new Error('Invalid generation history.');
         for (const source of value.generationHistory) {
-          if (!source || typeof source.id !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(source.id) || typeof source.prompt !== 'string' || !Array.isArray(source.operations) || !Array.isArray(source.changes) || !Array.isArray(source.warnings) || !Array.isArray(source.errors))
+          if (
+            !source ||
+            typeof source.id !== 'string' ||
+            !/^[A-Za-z0-9_-]{1,200}$/.test(source.id) ||
+            typeof source.prompt !== 'string' ||
+            !Array.isArray(source.operations) ||
+            !Array.isArray(source.changes) ||
+            !Array.isArray(source.warnings) ||
+            !Array.isArray(source.errors)
+          )
             throw new Error('Invalid generation history entry.');
-          db.prepare('INSERT INTO generationRuns VALUES (?,?)').run(source.id, JSON.stringify({ ...source, originalStatus: source.originalStatus ?? source.status, status: 'archived' }));
+          db.prepare('INSERT INTO generationRuns VALUES (?,?)').run(
+            source.id,
+            JSON.stringify({
+              ...source,
+              originalStatus: source.originalStatus ?? source.status,
+              status: 'archived',
+            }),
+          );
         }
       }
       if (db.prepare('PRAGMA foreign_key_check').all().length)
@@ -581,6 +657,66 @@ export function createStore(
   }
   function writePhoto(photo, albumName) {
     return writePhotoResult(photo, albumName).record;
+  }
+  function writePhotosResult(photos, albumName) {
+    if (!Array.isArray(photos) || !photos.length || photos.length > 100)
+      throw new Error('Choose between 1 and 100 photos.');
+    if (
+      photos.some(
+        (photo) =>
+          !photo ||
+          photo.ownerId !== photos[0].ownerId ||
+          photo.albumId !== photos[0].albumId ||
+          (photo.id && get('photos', photo.id)),
+      )
+    )
+      throw new Error('New photos must share an owner and album.');
+    return transaction(() => {
+      if (
+        photos[0].albumId &&
+        get('albums', photos[0].albumId)?.ownerId !== photos[0].ownerId
+      )
+        throw new Error('Choose an album belonging to the photo owner.');
+      const results = photos.map((photo) => writePhotoResult(photo, albumName));
+      return {
+        photos: results.map((result) => result.record),
+        album: results[0].album,
+      };
+    });
+  }
+  function writeProfileResult(input) {
+    return transaction(() => {
+      const previous = input.id ? get('profiles', input.id) : undefined;
+      const result = writeResult('profiles', input);
+      const profile = result.record;
+      if (
+        !profile.avatarMediaId ||
+        profile.avatarMediaId === previous?.avatarMediaId
+      )
+        return result;
+      const createdAt = new Date().toISOString();
+      const existing = db
+        .prepare(
+          'SELECT photos.* FROM photos JOIN albums ON albums.id=photos.albumId WHERE photos.ownerId=? AND albums.name=? AND photos.mediaId=? LIMIT 1',
+        )
+        .get(profile.id, 'Profile Photos', profile.avatarMediaId);
+      const photo =
+        existing ??
+        writePhotoResult(
+          {
+            ownerId: profile.id,
+            mediaId: profile.avatarMediaId,
+            caption: '',
+            createdAt,
+          },
+          'Profile Photos',
+        ).record;
+      const album = put('albums', {
+        ...get('albums', photo.albumId),
+        coverMediaId: profile.avatarMediaId,
+      });
+      return { ...result, photo, album };
+    });
   }
   function writeResult(table, input, { worldDate } = {}) {
     return transaction(() => {
@@ -729,43 +865,110 @@ export function createStore(
         PRAGMA user_version=3;`);
     }
     if (db.prepare('PRAGMA user_version').get().user_version === 3) {
-      if (filename !== ':memory:') db.prepare('VACUUM INTO ?').run(resolve(dirname(filename), `migration-v3-${Date.now()}-${randomUUID().slice(0,8)}.sqlite`));
-      transaction(() => { createNetworkSchema(db); db.exec('PRAGMA user_version=4;'); });
+      if (filename !== ':memory:')
+        db.prepare('VACUUM INTO ?').run(
+          resolve(
+            dirname(filename),
+            `migration-v3-${Date.now()}-${randomUUID().slice(0, 8)}.sqlite`,
+          ),
+        );
+      transaction(() => {
+        createNetworkSchema(db);
+        db.exec('PRAGMA user_version=4;');
+      });
     }
     if (db.prepare('PRAGMA user_version').get().user_version === 4) {
-      if (filename !== ':memory:') db.prepare('VACUUM INTO ?').run(resolve(dirname(filename), `migration-v4-${Date.now()}-${randomUUID().slice(0, 8)}.sqlite`));
+      if (filename !== ':memory:')
+        db.prepare('VACUUM INTO ?').run(
+          resolve(
+            dirname(filename),
+            `migration-v4-${Date.now()}-${randomUUID().slice(0, 8)}.sqlite`,
+          ),
+        );
       transaction(() => {
-        const existingFields = new Set(db.prepare('PRAGMA table_info(profiles)').all().map(({ name }) => name));
-        for (const field of ['highSchool', 'highSchoolGraduationYear', 'college', 'collegeGraduationYear', 'collegeMajor', 'jobTitle', 'employer'])
-          if (!existingFields.has(field)) db.exec(`ALTER TABLE profiles ADD COLUMN ${field} TEXT NOT NULL DEFAULT ''`);
-        db.exec("UPDATE profiles SET college=education WHERE college='' AND education<>''; UPDATE profiles SET employer=work WHERE employer='' AND work<>'';");
+        const existingFields = new Set(
+          db
+            .prepare('PRAGMA table_info(profiles)')
+            .all()
+            .map(({ name }) => name),
+        );
+        for (const field of [
+          'highSchool',
+          'highSchoolGraduationYear',
+          'college',
+          'collegeGraduationYear',
+          'collegeMajor',
+          'jobTitle',
+          'employer',
+        ])
+          if (!existingFields.has(field))
+            db.exec(
+              `ALTER TABLE profiles ADD COLUMN ${field} TEXT NOT NULL DEFAULT ''`,
+            );
+        db.exec(
+          "UPDATE profiles SET college=education WHERE college='' AND education<>''; UPDATE profiles SET employer=work WHERE employer='' AND work<>'';",
+        );
         db.exec('PRAGMA user_version=5;');
       });
     }
     if (db.prepare('PRAGMA user_version').get().user_version === 5) {
-      if (filename !== ':memory:') db.prepare('VACUUM INTO ?').run(resolve(dirname(filename), `migration-v5-${Date.now()}-${randomUUID().slice(0, 8)}.sqlite`));
+      if (filename !== ':memory:')
+        db.prepare('VACUUM INTO ?').run(
+          resolve(
+            dirname(filename),
+            `migration-v5-${Date.now()}-${randomUUID().slice(0, 8)}.sqlite`,
+          ),
+        );
       transaction(() => {
-        const existingFields = new Set(db.prepare('PRAGMA table_info(profiles)').all().map(({ name }) => name));
+        const existingFields = new Set(
+          db
+            .prepare('PRAGMA table_info(profiles)')
+            .all()
+            .map(({ name }) => name),
+        );
         for (const field of ['gender', 'politicalViews', 'religiousViews'])
-          if (!existingFields.has(field)) db.exec(`ALTER TABLE profiles ADD COLUMN ${field} TEXT NOT NULL DEFAULT ''`);
+          if (!existingFields.has(field))
+            db.exec(
+              `ALTER TABLE profiles ADD COLUMN ${field} TEXT NOT NULL DEFAULT ''`,
+            );
         db.exec('PRAGMA user_version=6;');
       });
     }
     if (db.prepare('PRAGMA user_version').get().user_version === 6) {
-      if (filename !== ':memory:') db.prepare('VACUUM INTO ?').run(resolve(dirname(filename), `migration-v6-${Date.now()}-${randomUUID().slice(0, 8)}.sqlite`));
+      if (filename !== ':memory:')
+        db.prepare('VACUUM INTO ?').run(
+          resolve(
+            dirname(filename),
+            `migration-v6-${Date.now()}-${randomUUID().slice(0, 8)}.sqlite`,
+          ),
+        );
       transaction(() => {
-        const existingFields = new Set(db.prepare('PRAGMA table_info(profiles)').all().map(({ name }) => name));
-        if (!existingFields.has('relationshipWithId')) db.exec(`ALTER TABLE profiles ADD COLUMN relationshipWithId TEXT REFERENCES profiles(id) ON DELETE SET NULL`);
+        const existingFields = new Set(
+          db
+            .prepare('PRAGMA table_info(profiles)')
+            .all()
+            .map(({ name }) => name),
+        );
+        if (!existingFields.has('relationshipWithId'))
+          db.exec(
+            `ALTER TABLE profiles ADD COLUMN relationshipWithId TEXT REFERENCES profiles(id) ON DELETE SET NULL`,
+          );
         db.exec('PRAGMA user_version=7;');
       });
     }
     initializeGeneration(db);
     // A terminated provider request cannot still be running after startup.
-    for (const row of db.prepare('SELECT id,payload FROM generationRuns').all()) {
+    for (const row of db
+      .prepare('SELECT id,payload FROM generationRuns')
+      .all()) {
       const run = JSON.parse(row.payload);
       if (run.status === 'inspecting') {
-        run.status = 'failed'; run.errors.push('Model request interrupted by server restart.');
-        db.prepare('UPDATE generationRuns SET payload=? WHERE id=?').run(JSON.stringify(run), row.id);
+        run.status = 'failed';
+        run.errors.push('Model request interrupted by server restart.');
+        db.prepare('UPDATE generationRuns SET payload=? WHERE id=?').run(
+          JSON.stringify(run),
+          row.id,
+        );
       }
     }
     if (seed && !db.prepare('SELECT 1 FROM settings').get())
@@ -787,7 +990,8 @@ export function createStore(
     get,
     getState,
     search,
-    networkDirectory: (id, filters = {}) => networkDirectory(getState(), id, filters),
+    networkDirectory: (id, filters = {}) =>
+      networkDirectory(getState(), id, filters),
     exportState,
     put,
     write,
@@ -798,6 +1002,8 @@ export function createStore(
     createPackagedMedia,
     writePhoto,
     writePhotoResult,
+    writePhotosResult,
+    writeProfileResult,
     resolveExternal,
     ensureProfileStub,
     hydrateProfile,

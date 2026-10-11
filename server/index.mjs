@@ -4,7 +4,10 @@ import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createStore, schema } from './store.mjs';
-import { createGeneration, httpProviderFromEnvironment } from './generation.mjs';
+import {
+  createGeneration,
+  httpProviderFromEnvironment,
+} from './generation.mjs';
 import {
   exportProfilePackage,
   previewProfilePackage,
@@ -12,7 +15,9 @@ import {
 } from './profile-package.mjs';
 
 export function createApp(store, middleware = null) {
-  const generation = createGeneration(store, { provider: httpProviderFromEnvironment() });
+  const generation = createGeneration(store, {
+    provider: httpProviderFromEnvironment(),
+  });
   const root = resolve('dist');
   const mime = {
     '.html': 'text/html; charset=utf-8',
@@ -74,14 +79,35 @@ export function createApp(store, middleware = null) {
           );
         }
         if (req.method === 'GET' && url.pathname === '/api/generation')
-          return json(200, { runs: generation.list(), configured: generation.configured });
-        if (req.method === 'GET' && url.pathname === '/api/generation-provenance')
-          return json(200, generation.provenance(url.searchParams.get('table'), url.searchParams.get('id')));
-        const generationRoute = url.pathname.match(/^\/api\/generation\/([^/]+)(?:\/([a-z]+))?$/);
+          return json(200, {
+            runs: generation.list(),
+            configured: generation.configured,
+          });
+        if (
+          req.method === 'GET' &&
+          url.pathname === '/api/generation-provenance'
+        )
+          return json(
+            200,
+            generation.provenance(
+              url.searchParams.get('table'),
+              url.searchParams.get('id'),
+            ),
+          );
+        const generationRoute = url.pathname.match(
+          /^\/api\/generation\/([^/]+)(?:\/([a-z]+))?$/,
+        );
         if (req.method === 'GET' && generationRoute && !generationRoute[2])
           return json(200, generation.get(generationRoute[1]));
         if (req.method === 'GET' && url.pathname === '/api/search')
-          return json(200, store.search(url.searchParams.get('q') ?? '', 50, url.searchParams.get('network') ?? ''));
+          return json(
+            200,
+            store.search(
+              url.searchParams.get('q') ?? '',
+              50,
+              url.searchParams.get('network') ?? '',
+            ),
+          );
         const packageExport = url.pathname.match(
           /^\/api\/profile-packages\/([^/]+)$/,
         );
@@ -150,15 +176,43 @@ export function createApp(store, middleware = null) {
           return json(201, generation.create(value));
         if (req.method === 'POST' && generationRoute) {
           const [, id, action] = generationRoute;
-          if (action === 'inspect') return json(200, await generation.inspect(id, value.name ?? 'inspect', value.arguments));
-          if (action === 'propose') return json(200, generation.propose(id, value.operations));
-          if (action === 'generate') return json(200, await generation.generate(id));
+          if (action === 'inspect')
+            return json(
+              200,
+              await generation.inspect(
+                id,
+                value.name ?? 'inspect',
+                value.arguments,
+              ),
+            );
+          if (action === 'propose')
+            return json(200, generation.propose(id, value.operations));
+          if (action === 'generate')
+            return json(200, await generation.generate(id));
           if (action === 'discard') return json(200, generation.discard(id));
           if (action === 'commit' || action === 'undo') {
             generation[action](id, value.selected);
             return json(200, store.getState());
           }
           return json(404, { error: 'Unknown generation action.' });
+        }
+        if (req.method === 'POST' && url.pathname === '/api/photos/batch') {
+          const { photos, album } = store.writePhotosResult(
+            value.photos,
+            value.albumName,
+          );
+          return json(
+            200,
+            changes({
+              photos,
+              albums: [album],
+              media: [
+                ...new Map(
+                  photos.flatMap(referencedMedia).map((row) => [row.id, row]),
+                ).values(),
+              ],
+            }),
+          );
         }
         if (req.method === 'POST' && url.pathname === '/api/photos/save') {
           const { record, notification, album } = store.writePhotoResult(
@@ -217,13 +271,14 @@ export function createApp(store, middleware = null) {
           store.remove(match[1], id);
           result = changes({}, { [match[1]]: [id] });
         } else if (req.method === 'POST' && !match[2]) {
-          const { record, notification, story } = store.writeResult(
-            match[1],
-            value,
-          );
+          const { record, notification, story, photo, album } =
+            match[1] === 'profiles'
+              ? store.writeProfileResult(value)
+              : store.writeResult(match[1], value);
           const media = referencedMedia(record);
           result = changes({
             [match[1]]: [record],
+            ...(photo ? { photos: [photo], albums: [album] } : {}),
             ...(match[1] === 'profiles'
               ? {
                   networks: store.getState().networks,
@@ -283,7 +338,9 @@ if (
         .filter((entry) => entry && entry.family === 'IPv4' && !entry.internal)
         .map((entry) => `http://${entry.address}:${port}`);
       console.log(`Phasebook is listening on ${host}:${port}`);
-      console.log(`LAN URLs: ${addresses.join(', ') || '(no LAN IPv4 address found)'}`);
+      console.log(
+        `LAN URLs: ${addresses.join(', ') || '(no LAN IPv4 address found)'}`,
+      );
     } else {
       console.log(`Phasebook is local at http://${host}:${port}`);
     }

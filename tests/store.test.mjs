@@ -55,6 +55,44 @@ const post = (id, authorId = 'p1') => ({
   createdAt: '2010-03-18T10:00:00Z',
 });
 
+test('profile pictures reuse an owner album, preserve history, and avoid duplicates', async () => {
+  const fixture = await tempStore();
+  const { store } = fixture;
+  try {
+    const first = store.createMedia({
+      sourceType: 'bundled',
+      sourceLocation: '/assets/avatar-2.jpg',
+    });
+    const second = store.createMedia({
+      sourceType: 'bundled',
+      sourceLocation: '/assets/avatar-3.jpg',
+    });
+    const save = (id, mediaId) =>
+      store.writeProfileResult({
+        ...store.get('profiles', id),
+        avatarMediaId: mediaId,
+      });
+    const initial = save('p1', first.id);
+    assert.equal(initial.album.name, 'Profile Photos');
+    assert.equal(initial.photo.mediaId, first.id);
+    assert.equal(save('p1', first.id).photo, undefined);
+    const changed = save('p1', second.id);
+    assert.equal(changed.album.id, initial.album.id);
+    assert.equal(changed.album.coverMediaId, second.id);
+    assert.equal(save('p1', first.id).photo.id, initial.photo.id);
+    const other = save('p2', first.id);
+    assert.notEqual(other.album.id, initial.album.id);
+    assert.equal(
+      store.getState().photos.filter((p) => p.ownerId === 'p1').length,
+      2,
+    );
+    save('p1', null);
+    assert.equal(store.getState().photos.length, 3);
+  } finally {
+    await closeAndRemove(fixture);
+  }
+});
+
 test('seed data has complete references', async () => {
   const state = JSON.parse(
     await readFile(new URL('../db/seed.json', import.meta.url), 'utf8'),

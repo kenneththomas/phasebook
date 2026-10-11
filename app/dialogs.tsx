@@ -25,7 +25,7 @@ import {
   type World,
 } from './shared';
 import { useApp, type ModalState } from './context';
-import { MediaEditor } from './media-editor';
+import { MediaEditor, PhotoBatchEditor } from './media-editor';
 import { useInventAName } from '../hooks/use-invent-a-name';
 
 export function Modal({ modal }: { modal: ModalState }) {
@@ -518,6 +518,8 @@ export function Editor({
     ...row,
   });
   const [uploading, setUploading] = useState(false);
+  const [photoItems, setPhotoItems] = useState<Row[]>([]);
+  const batchPhotos = kind === 'photo' && !row;
   const [newAlbum, setNewAlbum] = useState('My Photos');
   const set = (key: string, value: unknown) =>
     setForm((f) => {
@@ -576,6 +578,7 @@ export function Editor({
     <form
       onSubmit={async (e) => {
         e.preventDefault();
+        if (uploading || busy) return;
         const table: Record<string, string> = {
           profile: 'profiles',
           post: 'posts',
@@ -585,7 +588,7 @@ export function Editor({
           group: 'groups',
           message: 'messages',
         };
-        if (kind === 'photo' && !form.mediaId) {
+        if (kind === 'photo' && (batchPhotos ? !photoItems.length : !form.mediaId)) {
           fail('Choose an uploaded image or an external image URL.');
           return;
         }
@@ -598,13 +601,22 @@ export function Editor({
             ? { ...form, id: existing.id }
             : form;
         const saved =
-          kind === 'photo'
+          batchPhotos
+            ? await run('photos/batch', {
+                photos: photoItems.map((media) => ({
+                  id: media.id === photoItems[0].id ? record.id : uid(),
+                  ownerId: form.ownerId, albumId: form.albumId,
+                  mediaId: media.id, caption: media.caption, createdAt: form.createdAt,
+                })),
+                albumName: newAlbum,
+              })
+            : kind === 'photo'
             ? await run('photos/save', { photo: record, albumName: newAlbum })
             : await save(table[kind], record);
         if (saved) {
           open(null);
           if (kind === 'profile') go('profile', record.id);
-          if (onSaved) onSaved(record);
+          if (onSaved) onSaved(batchPhotos ? { ...record, mediaId: photoItems[0].id, caption: photoItems[0].caption } : record);
           else if (kind === 'photo') go('photos');
         }
       }}
@@ -653,7 +665,9 @@ export function Editor({
           )}
         </>
       )}
-      {['profile', 'photo', 'album'].includes(kind) && (
+      {batchPhotos && <PhotoBatchEditor items={photoItems} onChange={setPhotoItems} onBusy={setUploading} />}
+      {batchPhotos && onSaved && <p className="form-help">All selected photos will be saved to the album. The first one will be attached to your post.</p>}
+      {['profile', 'photo', 'album'].includes(kind) && !batchPhotos && (
         <MediaEditor
           id={
             form[
@@ -725,7 +739,7 @@ export function Editor({
           )}
         </>
       )}
-      {fields[kind]?.map(([key, label, type]) => (
+      {(batchPhotos ? [] : fields[kind])?.map(([key, label, type]) => (
         <div key={key}>
         <label className="form-field">
           {label}
@@ -795,6 +809,8 @@ export function Editor({
         <button className="blue-button" disabled={busy || uploading}>
           {busy
             ? 'Saving…'
+            : batchPhotos
+              ? `Save ${photoItems.length} photo${photoItems.length === 1 ? '' : 's'}`
             : kind === 'message'
               ? 'Send'
               : kind === 'profile' && !row
