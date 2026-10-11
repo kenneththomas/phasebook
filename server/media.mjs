@@ -22,15 +22,17 @@ export function decodeImage(dataUrl) {
     bytes.length > 3_000_000
   )
     throw new Error('Invalid image encoding.');
-  const valid =
-    match[1] === 'image/png'
-      ? bytes.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))
-      : match[1] === 'image/jpeg'
-        ? bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
+  const detected =
+    bytes.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))
+      ? 'image/png'
+      : bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
+        ? 'image/jpeg'
         : bytes.toString('ascii', 0, 4) === 'RIFF' &&
-          bytes.toString('ascii', 8, 12) === 'WEBP';
-  if (!valid) throw new Error('Image bytes do not match the image type.');
-  return { bytes, mimeType: match[1], extension: extensions[match[1]] };
+            bytes.toString('ascii', 8, 12) === 'WEBP'
+          ? 'image/webp'
+          : null;
+  if (!detected) throw new Error('Image bytes do not match a supported image type.');
+  return { bytes, mimeType: detected, extension: extensions[detected] };
 }
 export function remoteURL(value) {
   let url;

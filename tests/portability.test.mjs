@@ -148,6 +148,12 @@ test('local, remote, and bundled media share references; unsafe media is rejecte
     readFileSync(s.mediaFile(local.id).path).toString('base64'),
     png.split(',')[1],
   );
+  const mislabeled = s.createMedia({
+    sourceType: 'local',
+    dataUrl: png.replace('data:image/png;', 'data:image/jpeg;'),
+  });
+  assert.equal(mislabeled.mimeType, 'image/png');
+  assert.match(mislabeled.sourceLocation, /^[0-9a-f-]{36}\.png$/);
   const remote = s.createMedia({
     sourceType: 'remote',
     sourceLocation: 'https://example.com/image.png?size=large',
@@ -161,7 +167,7 @@ test('local, remote, and bundled media share references; unsafe media is rejecte
     assert.equal(s.get('profiles', 'p1').avatarMediaId, media.id);
     assert.throws(() => s.remove('media', media.id), /FOREIGN KEY/);
   }
-  assert.equal(readdirSync(s.mediaDir).length, 1); // remote was never fetched
+  assert.equal(readdirSync(s.mediaDir).length, 2); // remote was never fetched
   for (const url of [
     'javascript:alert(1)',
     'file:///etc/passwd',
