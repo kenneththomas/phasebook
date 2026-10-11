@@ -19,6 +19,7 @@ export type CollectionName =
   | 'groups'
   | 'groupMembers'
   | 'photos'
+  | 'photoTags'
   | 'albums'
   | 'media';
 export type World = Record<CollectionName, Row[]> & {
@@ -81,6 +82,7 @@ const collections: CollectionName[] = [
   'groups',
   'groupMembers',
   'photos',
+  'photoTags',
   'albums',
   'media',
 ];
@@ -108,6 +110,10 @@ const references: Partial<
     ownerId: ['profiles', 'cascade'],
     albumId: ['albums', 'cascade'],
     mediaId: ['media', 'cascade'],
+  },
+  photoTags: {
+    photoId: ['photos', 'cascade'],
+    profileId: ['profiles', 'cascade'],
   },
   posts: {
     authorId: ['profiles', 'cascade'],

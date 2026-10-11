@@ -91,6 +91,10 @@ export const schema = {
     mediaId: mediaRef(),
     createdAt: text,
   },
+  photoTags: {
+    photoId: ref('photos'),
+    profileId: ref('profiles'),
+  },
   posts: {
     authorId: ref('profiles'),
     wallId: ref('profiles', true),
@@ -227,6 +231,11 @@ export function createNetworkSchema(db) {
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS network_member_pair ON networkMemberships(networkId,profileId);
     CREATE INDEX IF NOT EXISTS idx_network_members_profile ON networkMemberships(profileId,networkId);`);
 }
+export function createPhotoTagSchema(db) {
+  db.exec(`CREATE TABLE IF NOT EXISTS photoTags (id TEXT PRIMARY KEY NOT NULL, externalId TEXT NOT NULL UNIQUE, photoId ${ref('photos')}, profileId ${ref('profiles')});
+    CREATE UNIQUE INDEX IF NOT EXISTS photo_tag_pair ON photoTags(photoId,profileId);
+    CREATE INDEX IF NOT EXISTS idx_photo_tags_profile ON photoTags(profileId,photoId);`);
+}
 export function createSchema(db) {
   for (const [table, fields] of Object.entries(schema))
     db.exec(
@@ -237,6 +246,7 @@ export function createSchema(db) {
         .join(',')})`,
     );
   createNetworkSchema(db);
+  createPhotoTagSchema(db);
   db.exec(`CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id=1), activeProfileId TEXT NOT NULL REFERENCES profiles(id) DEFERRABLE INITIALLY DEFERRED);
     CREATE UNIQUE INDEX friendship_pair ON friendships(min(profileId,friendId),max(profileId,friendId));
     CREATE UNIQUE INDEX like_pair ON likes(postId,profileId);

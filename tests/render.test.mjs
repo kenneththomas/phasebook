@@ -115,6 +115,25 @@ test('main screens render through Vite SSR with seeded state', async () => {
       'Class Year',
     );
     render(React.createElement(screens.Photos), 'Photos');
+    render(
+      React.createElement(screens.TaggedPhotos, { profileId: 'p1' }),
+      'No tagged photos yet.',
+    );
+    const taggedPhoto = world.photos.find((photo) => photo.ownerId !== 'p1');
+    world.photoTags.push({
+      id: 'render-tag',
+      photoId: taggedPhoto.id,
+      profileId: 'p1',
+    });
+    const taggedHtml = render(
+      React.createElement(screens.TaggedPhotos, { profileId: 'p1' }),
+      taggedPhoto.caption,
+    );
+    assert.match(
+      taggedHtml.replaceAll('<!-- -->', ''),
+      /Photos of Alex Morgan/,
+    );
+    assert.match(taggedHtml, /Added by/);
     render(React.createElement(screens.Events), 'Events');
     render(React.createElement(screens.Groups), 'Groups');
     render(

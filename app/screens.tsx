@@ -125,8 +125,8 @@ export function Profile({ id }: { id: string }) {
                       {p.relationship || 'Not added yet'}
                       {p.relationshipWithId && (
                         <>
-                          {' '}with{' '}
-                          <PersonLink id={p.relationshipWithId} />
+                          {' '}
+                          with <PersonLink id={p.relationshipWithId} />
                         </>
                       )}
                     </>
@@ -140,6 +140,7 @@ export function Profile({ id }: { id: string }) {
         </TabsContent>
         <TabsContent value="Photos">
           <Photos ownerId={id} />
+          <TaggedPhotos profileId={id} />
         </TabsContent>
         <TabsContent value="Boxes">
           <h2 className="info-heading">My Groups</h2>
@@ -286,6 +287,44 @@ export function Friends() {
           );
         })}
     </>
+  );
+}
+export function TaggedPhotos({ profileId }: { profileId: string }) {
+  const { world, person, open } = useApp();
+  const taggedIds = new Set(
+    world.photoTags
+      .filter((tag) => tag.profileId === profileId)
+      .map((tag) => tag.photoId),
+  );
+  const photos = world.photos
+    .filter((photo) => taggedIds.has(photo.id))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return (
+    <section className="tagged-photos">
+      <Title>
+        Photos of {profileName(person(profileId))} ({photos.length})
+      </Title>
+      {photos.length ? (
+        <div className="photo-grid">
+          {photos.map((photo) => (
+            <button
+              className="album"
+              key={photo.id}
+              onClick={() => open({ kind: 'viewPhoto', row: photo })}
+            >
+              <img
+                src={mediaURL(world, photo.mediaId)}
+                alt={photo.caption || 'Tagged photo'}
+              />
+              <b>{photo.caption || 'Photo'}</b>
+              <span>Added by {profileName(person(photo.ownerId))}</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-state">No tagged photos yet.</div>
+      )}
+    </section>
   );
 }
 export function Photos({ ownerId }: { ownerId?: string }) {

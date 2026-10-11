@@ -1297,6 +1297,22 @@ h1 {
 .import-preview .dialog-actions {
   margin: 10px -12px -12px;
 }
+.photo-tags {
+  margin-top: 16px;
+}
+.photo-tag,
+.photo-tag-form {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0;
+}
+.photo-tag-form {
+  flex-wrap: wrap;
+}
+.tagged-photos {
+  margin-top: 24px;
+}
 .full-photo {
   width: 100%;
   max-height: 55vh;

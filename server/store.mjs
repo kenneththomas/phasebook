@@ -19,6 +19,7 @@ import {
   validateRecord,
   createSchema,
   createNetworkSchema,
+  createPhotoTagSchema,
 } from './schema.mjs';
 import { networkFields, networkDirectory } from '../lib/networks.mjs';
 import { schema as legacySchema } from './legacy-schema.mjs';
@@ -521,6 +522,7 @@ export function createStore(
       ...value,
       networks: value.networks ?? [],
       networkMemberships: value.networkMemberships ?? [],
+      photoTags: value.photoTags ?? [],
     };
     const collections =
       value.schemaVersion === 1
@@ -803,7 +805,7 @@ export function createStore(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='profiles'",
       )
       .get();
-    if (version > 7)
+    if (version > 8)
       throw new Error(
         'This database was created by a newer Phasebook version.',
       );
@@ -956,6 +958,10 @@ export function createStore(
         db.exec('PRAGMA user_version=7;');
       });
     }
+    transaction(() => {
+      createPhotoTagSchema(db);
+      db.exec('PRAGMA user_version=8;');
+    });
     initializeGeneration(db);
     // A terminated provider request cannot still be running after startup.
     for (const row of db

@@ -132,8 +132,15 @@ function Switcher() {
     </>
   );
 }
-function PhotoViewer({ row }: { row: Row }) {
-  const { world, person, open } = useApp();
+function PhotoViewer({ row: initialRow }: { row: Row }) {
+  const { world, person, open, save, remove, busy, go } = useApp();
+  const [profileId, setProfileId] = useState('');
+  const row =
+    world.photos.find((photo) => photo.id === initialRow.id) || initialRow;
+  const tags = world.photoTags.filter((tag) => tag.photoId === row.id);
+  const available = world.profiles.filter(
+    (profile) => !tags.some((tag) => tag.profileId === profile.id),
+  );
   return (
     <>
       <img
@@ -146,6 +153,70 @@ function PhotoViewer({ row }: { row: Row }) {
         Added by {profileName(person(row.ownerId))} ·{' '}
         {albumName(world, row.albumId)}
       </p>
+      <div className="photo-tags">
+        <h2 className="info-heading">People in this photo</h2>
+        {tags.length ? (
+          tags.map((tag) => (
+            <div className="photo-tag" key={tag.id}>
+              <button
+                className="person-name"
+                onClick={() => {
+                  open(null);
+                  go('profile', tag.profileId);
+                }}
+              >
+                {profileName(person(tag.profileId))}
+              </button>
+              <button
+                className="text-link"
+                disabled={busy}
+                onClick={() => remove('photoTags', tag.id)}
+                aria-label={`Remove tag for ${profileName(person(tag.profileId))}`}
+              >
+                Remove tag
+              </button>
+            </div>
+          ))
+        ) : (
+          <p className="muted">No one tagged yet.</p>
+        )}
+        <form
+          className="photo-tag-form"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (
+              profileId &&
+              (await save('photoTags', {
+                id: uid(),
+                photoId: row.id,
+                profileId,
+              }))
+            )
+              setProfileId('');
+          }}
+        >
+          <NativeSelect
+            aria-label="Person to tag"
+            value={profileId}
+            onChange={(event) => setProfileId(event.target.value)}
+          >
+            <option value="">Choose a person…</option>
+            {available.map((profile) => (
+              <option key={profile.id} value={profile.id}>
+                {profileName(profile)}
+              </option>
+            ))}
+          </NativeSelect>
+          <button
+            className="gray-button"
+            disabled={
+              busy || !available.some((profile) => profile.id === profileId)
+            }
+          >
+            Tag Person
+          </button>
+        </form>
+      </div>
       <div className="dialog-actions">
         <button onClick={() => open({ kind: 'photo', row })}>Edit Photo</button>
       </div>
@@ -524,7 +595,11 @@ export function Editor({
   const set = (key: string, value: unknown) =>
     setForm((f) => {
       const next = { ...f, [key]: value };
-      if (key === 'relationship' && kind === 'profile' && (!value || value === 'Single'))
+      if (
+        key === 'relationship' &&
+        kind === 'profile' &&
+        (!value || value === 'Single')
+      )
         next.relationshipWithId = null;
       return next;
     });
@@ -588,7 +663,10 @@ export function Editor({
           group: 'groups',
           message: 'messages',
         };
-        if (kind === 'photo' && (batchPhotos ? !photoItems.length : !form.mediaId)) {
+        if (
+          kind === 'photo' &&
+          (batchPhotos ? !photoItems.length : !form.mediaId)
+        ) {
           fail('Choose an uploaded image or an external image URL.');
           return;
         }
@@ -600,23 +678,34 @@ export function Editor({
           existing?.state === 'stub' && !row
             ? { ...form, id: existing.id }
             : form;
-        const saved =
-          batchPhotos
-            ? await run('photos/batch', {
-                photos: photoItems.map((media) => ({
-                  id: media.id === photoItems[0].id ? record.id : uid(),
-                  ownerId: form.ownerId, albumId: form.albumId,
-                  mediaId: media.id, caption: media.caption, createdAt: form.createdAt,
-                })),
-                albumName: newAlbum,
-              })
-            : kind === 'photo'
+        const saved = batchPhotos
+          ? await run('photos/batch', {
+              photos: photoItems.map((media) => ({
+                id: media.id === photoItems[0].id ? record.id : uid(),
+                ownerId: form.ownerId,
+                albumId: form.albumId,
+                mediaId: media.id,
+                caption: media.caption,
+                createdAt: form.createdAt,
+              })),
+              albumName: newAlbum,
+            })
+          : kind === 'photo'
             ? await run('photos/save', { photo: record, albumName: newAlbum })
             : await save(table[kind], record);
         if (saved) {
           open(null);
           if (kind === 'profile') go('profile', record.id);
-          if (onSaved) onSaved(batchPhotos ? { ...record, mediaId: photoItems[0].id, caption: photoItems[0].caption } : record);
+          if (onSaved)
+            onSaved(
+              batchPhotos
+                ? {
+                    ...record,
+                    mediaId: photoItems[0].id,
+                    caption: photoItems[0].caption,
+                  }
+                : record,
+            );
           else if (kind === 'photo') go('photos');
         }
       }}
@@ -665,8 +754,19 @@ export function Editor({
           )}
         </>
       )}
-      {batchPhotos && <PhotoBatchEditor items={photoItems} onChange={setPhotoItems} onBusy={setUploading} />}
-      {batchPhotos && onSaved && <p className="form-help">All selected photos will be saved to the album. The first one will be attached to your post.</p>}
+      {batchPhotos && (
+        <PhotoBatchEditor
+          items={photoItems}
+          onChange={setPhotoItems}
+          onBusy={setUploading}
+        />
+      )}
+      {batchPhotos && onSaved && (
+        <p className="form-help">
+          All selected photos will be saved to the album. The first one will be
+          attached to your post.
+        </p>
+      )}
       {['profile', 'photo', 'album'].includes(kind) && !batchPhotos && (
         <MediaEditor
           id={
@@ -741,63 +841,84 @@ export function Editor({
       )}
       {(batchPhotos ? [] : fields[kind])?.map(([key, label, type]) => (
         <div key={key}>
-        <label className="form-field">
-          {label}
-          {type === 'area' ? (
-            <textarea
-              value={form[key] ?? ''}
-              rows={key === 'body' ? 4 : 2}
-              required={key === 'body'}
-              maxLength={20000}
-              onChange={(e) => set(key, e.target.value)}
-            />
-          ) : (
-            <input
-              type={type || 'text'}
-              value={
-                type === 'datetime-local'
-                  ? dateLocal(form[key])
-                  : (form[key] ?? '')
-              }
-              maxLength={20000}
-              required={
-                ['name', 'title', 'startsAt'].includes(key) &&
-                !(kind === 'profile' && form.state === 'stub' && key === 'name')
-              }
-              onChange={(e) =>
-                set(
-                  key,
-                  type === 'datetime-local' && e.target.value
-                    ? new Date(e.target.value).toISOString()
-                    : e.target.value,
-                )
-              }
-            />
+          <label className="form-field">
+            {label}
+            {type === 'area' ? (
+              <textarea
+                value={form[key] ?? ''}
+                rows={key === 'body' ? 4 : 2}
+                required={key === 'body'}
+                maxLength={20000}
+                onChange={(e) => set(key, e.target.value)}
+              />
+            ) : (
+              <input
+                type={type || 'text'}
+                value={
+                  type === 'datetime-local'
+                    ? dateLocal(form[key])
+                    : (form[key] ?? '')
+                }
+                maxLength={20000}
+                required={
+                  ['name', 'title', 'startsAt'].includes(key) &&
+                  !(
+                    kind === 'profile' &&
+                    form.state === 'stub' &&
+                    key === 'name'
+                  )
+                }
+                onChange={(e) =>
+                  set(
+                    key,
+                    type === 'datetime-local' && e.target.value
+                      ? new Date(e.target.value).toISOString()
+                      : e.target.value,
+                  )
+                }
+              />
+            )}
+          </label>
+          {kind === 'profile' && key === 'name' && (
+            <button
+              type="button"
+              className="gray-button"
+              disabled={naming || busy}
+              onClick={async () => {
+                try {
+                  set('name', await generateName());
+                } catch (error) {
+                  fail((error as Error).message);
+                }
+              }}
+            >
+              {naming ? 'Getting name…' : 'Generate name with Namey'}
+            </button>
           )}
-        </label>
-        {kind === 'profile' && key === 'name' && <button type="button" className="gray-button" disabled={naming || busy} onClick={async () => {
-          try { set('name', await generateName()); } catch (error) { fail((error as Error).message); }
-        }}>{naming ? 'Getting name…' : 'Generate name with Namey'}</button>}
         </div>
       ))}
-      {kind === 'profile' && form.relationship && form.relationship !== 'Single' && (
-        <label className="form-field">
-          Relationship With
-          <NativeSelect
-            value={form.relationshipWithId ?? ''}
-            onChange={(e) => set('relationshipWithId', e.target.value || null)}
-          >
-            <option value="">None</option>
-            {world.profiles
-              .filter((p: Row) => p.id !== form.id)
-              .map((p: Row) => (
-                <option key={p.id} value={p.id}>
-                  {profileName(p)}
-                </option>
-              ))}
-          </NativeSelect>
-        </label>
-      )}
+      {kind === 'profile' &&
+        form.relationship &&
+        form.relationship !== 'Single' && (
+          <label className="form-field">
+            Relationship With
+            <NativeSelect
+              value={form.relationshipWithId ?? ''}
+              onChange={(e) =>
+                set('relationshipWithId', e.target.value || null)
+              }
+            >
+              <option value="">None</option>
+              {world.profiles
+                .filter((p: Row) => p.id !== form.id)
+                .map((p: Row) => (
+                  <option key={p.id} value={p.id}>
+                    {profileName(p)}
+                  </option>
+                ))}
+            </NativeSelect>
+          </label>
+        )}
       <div className="dialog-actions">
         <button
           type="button"
@@ -811,11 +932,11 @@ export function Editor({
             ? 'Saving…'
             : batchPhotos
               ? `Save ${photoItems.length} photo${photoItems.length === 1 ? '' : 's'}`
-            : kind === 'message'
-              ? 'Send'
-              : kind === 'profile' && !row
-                ? 'Create Profile'
-                : 'Save Changes'}
+              : kind === 'message'
+                ? 'Send'
+                : kind === 'profile' && !row
+                  ? 'Create Profile'
+                  : 'Save Changes'}
         </button>
       </div>
     </form>

@@ -207,6 +207,13 @@ export function exportProfilePackage(store, profileId, now = new Date()) {
   }
   for (const photo of chosen.photos.values())
     add('albums', store.get('albums', photo.albumId));
+  for (const tag of state.photoTags)
+    if (tag.profileId === rootId || chosen.photos.has(tag.photoId)) {
+      add('photoTags', tag);
+      const photo = store.get('photos', tag.photoId);
+      add('photos', photo);
+      add('albums', store.get('albums', photo.albumId));
+    }
   const mediaIds = new Set([root.avatarMediaId]);
   for (const row of chosen.albums.values()) mediaIds.add(row.coverMediaId);
   for (const row of chosen.photos.values()) mediaIds.add(row.mediaId);
@@ -332,6 +339,7 @@ export function validateProfilePackage(buffer) {
   if (entities && typeof entities === 'object') {
     entities.networks ??= [];
     entities.networkMemberships ??= [];
+    entities.photoTags ??= [];
   }
   if (
     !entities ||
@@ -514,6 +522,7 @@ export function importProfilePackage(store, buffer, strategy = 'cancel') {
           friendships: ['profileId', 'friendId'],
           groupMembers: ['groupId', 'profileId'],
           networkMemberships: ['networkId', 'profileId'],
+          photoTags: ['photoId', 'profileId'],
           likes: ['postId', 'profileId'],
           eventGuests: ['eventId', 'profileId'],
         }[table];
