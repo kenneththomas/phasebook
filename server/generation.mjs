@@ -292,8 +292,12 @@ export function createGeneration(
       )
         return false;
       if (
-        row.postId &&
-        Date.parse(store.get('posts', row.postId)?.createdAt) > Date.parse(date)
+        (row.postId &&
+          Date.parse(store.get('posts', row.postId)?.createdAt) >
+            Date.parse(date)) ||
+        (row.photoId &&
+          Date.parse(store.get('photos', row.photoId)?.createdAt) >
+            Date.parse(date))
       )
         return false;
       for (const [field, target] of Object.entries(references[args.table])) {
@@ -550,6 +554,12 @@ export function createGeneration(
           Date.parse(store.get('posts', data.postId).createdAt)
       )
         fail('Comment precedes its post.');
+      if (
+        op.table === 'photoComments' &&
+        Date.parse(data.createdAt) <
+          Date.parse(store.get('photos', data.photoId).createdAt)
+      )
+        fail('Comment precedes its photo.');
       for (const [field, target] of Object.entries(references[op.table])) {
         const row = data[field] && store.get(target, data[field]);
         if (
@@ -562,7 +572,7 @@ export function createGeneration(
           fail('Participant was not born at activity time.');
         if (
           row &&
-          target === 'posts' &&
+          ['posts', 'photos'].includes(target) &&
           Date.parse(row.createdAt) > Date.parse(run.context.worldDate)
         )
           fail('Referenced content is in the future.');
@@ -892,7 +902,8 @@ export function openrouterProvider({
           response_format: { type: 'json_object' },
         }),
       });
-      if (!response.ok) throw new Error(`OpenRouter failed (${response.status}).`);
+      if (!response.ok)
+        throw new Error(`OpenRouter failed (${response.status}).`);
       const body = await response.text();
       if (body.length > 1_000_000)
         throw new Error('Model response exceeds budget.');

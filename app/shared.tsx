@@ -19,6 +19,8 @@ export type CollectionName =
   | 'groups'
   | 'groupMembers'
   | 'photos'
+  | 'photoLikes'
+  | 'photoComments'
   | 'photoTags'
   | 'albums'
   | 'media';
@@ -82,6 +84,8 @@ const collections: CollectionName[] = [
   'groups',
   'groupMembers',
   'photos',
+  'photoLikes',
+  'photoComments',
   'photoTags',
   'albums',
   'media',
@@ -110,6 +114,14 @@ const references: Partial<
     ownerId: ['profiles', 'cascade'],
     albumId: ['albums', 'cascade'],
     mediaId: ['media', 'cascade'],
+  },
+  photoLikes: {
+    photoId: ['photos', 'cascade'],
+    profileId: ['profiles', 'cascade'],
+  },
+  photoComments: {
+    photoId: ['photos', 'cascade'],
+    authorId: ['profiles', 'cascade'],
   },
   photoTags: {
     photoId: ['photos', 'cascade'],

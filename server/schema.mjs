@@ -91,6 +91,13 @@ export const schema = {
     mediaId: mediaRef(),
     createdAt: text,
   },
+  photoLikes: { photoId: ref('photos'), profileId: ref('profiles') },
+  photoComments: {
+    photoId: ref('photos'),
+    authorId: ref('profiles'),
+    body: text,
+    createdAt: text,
+  },
   photoTags: {
     photoId: ref('photos'),
     profileId: ref('profiles'),
@@ -236,6 +243,18 @@ export function createPhotoTagSchema(db) {
     CREATE UNIQUE INDEX IF NOT EXISTS photo_tag_pair ON photoTags(photoId,profileId);
     CREATE INDEX IF NOT EXISTS idx_photo_tags_profile ON photoTags(profileId,photoId);`);
 }
+export function createPhotoFeedbackSchema(db) {
+  for (const table of ['photoLikes', 'photoComments'])
+    db.exec(
+      `CREATE TABLE IF NOT EXISTS ${table} (id TEXT PRIMARY KEY NOT NULL, externalId TEXT NOT NULL UNIQUE, ${Object.entries(
+        schema[table],
+      )
+        .map(([k, v]) => `${k} ${v}`)
+        .join(',')})`,
+    );
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS photo_like_pair ON photoLikes(photoId,profileId);
+    CREATE INDEX IF NOT EXISTS idx_photo_comments_photo ON photoComments(photoId,createdAt);`);
+}
 export function createSchema(db) {
   for (const [table, fields] of Object.entries(schema))
     db.exec(
@@ -247,6 +266,7 @@ export function createSchema(db) {
     );
   createNetworkSchema(db);
   createPhotoTagSchema(db);
+  createPhotoFeedbackSchema(db);
   db.exec(`CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id=1), activeProfileId TEXT NOT NULL REFERENCES profiles(id) DEFERRABLE INITIALLY DEFERRED);
     CREATE UNIQUE INDEX friendship_pair ON friendships(min(profileId,friendId),max(profileId,friendId));
     CREATE UNIQUE INDEX like_pair ON likes(postId,profileId);

@@ -1,5 +1,6 @@
 import { NetworkEditor } from './networks';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { Pager, pageRows } from './pagination';
 import {
   Dialog,
   DialogContent,
@@ -21,6 +22,7 @@ import {
   emptyProfile,
   uid,
   now,
+  stamp,
   type Row,
   type World,
 } from './shared';
@@ -132,11 +134,24 @@ function Switcher() {
     </>
   );
 }
-function PhotoViewer({ row: initialRow }: { row: Row }) {
-  const { world, person, open, save, remove, busy, go } = useApp();
+export function PhotoViewer({ row: initialRow }: { row: Row }) {
+  const { world, me, person, open, save, remove, busy, go } = useApp();
   const [profileId, setProfileId] = useState('');
+  const [comment, setComment] = useState('');
+  const [commentPage, setCommentPage] = useState(1);
+  const commentInput = useRef<HTMLInputElement>(null);
   const row =
     world.photos.find((photo) => photo.id === initialRow.id) || initialRow;
+  const likes = world.photoLikes.filter((like) => like.photoId === row.id);
+  const mine = likes.find((like) => like.profileId === me.id);
+  const comments = world.photoComments
+    .filter((item) => item.photoId === row.id)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const pagedComments = pageRows(comments, commentPage, 5);
+  const visit = (id: string) => {
+    open(null);
+    go('profile', id);
+  };
   const tags = world.photoTags.filter((tag) => tag.photoId === row.id);
   const available = world.profiles.filter(
     (profile) => !tags.some((tag) => tag.profileId === profile.id),
@@ -153,6 +168,105 @@ function PhotoViewer({ row: initialRow }: { row: Row }) {
         Added by {profileName(person(row.ownerId))} ·{' '}
         {albumName(world, row.albumId)}
       </p>
+      <section className="photo-feedback" aria-label="Photo likes and comments">
+        <div className="post-actions">
+          <button
+            disabled={busy}
+            aria-pressed={Boolean(mine)}
+            onClick={() =>
+              mine
+                ? remove('photoLikes', mine.id)
+                : save('photoLikes', {
+                    id: uid(),
+                    photoId: row.id,
+                    profileId: me.id,
+                  })
+            }
+          >
+            {mine ? 'Unlike' : 'Like'}
+          </button>{' '}
+          ·{' '}
+          <button onClick={() => commentInput.current?.focus()}>Comment</button>
+          <span>
+            {' '}
+            · {likes.length} {likes.length === 1 ? 'like' : 'likes'} ·{' '}
+            {comments.length} {comments.length === 1 ? 'comment' : 'comments'}
+          </span>
+        </div>
+        {likes.length > 0 && (
+          <div className="feedback likes">
+            <span>
+              {likes.slice(0, 3).map((like, index) => (
+                <span key={like.id}>
+                  {index > 0 ? ', ' : ''}
+                  <button
+                    className="person-name"
+                    onClick={() => visit(like.profileId)}
+                  >
+                    {like.profileId === me.id
+                      ? 'You'
+                      : profileName(person(like.profileId))}
+                  </button>
+                </span>
+              ))}
+              {likes.length > 3 ? ` and ${likes.length - 3} others` : ''} liked
+              this photo.
+            </span>
+          </div>
+        )}
+        {pagedComments.rows.map((item) => (
+          <div className="feedback comment" key={item.id}>
+            <Avatar person={person(item.authorId)} size={32} />
+            <div>
+              <button
+                className="person-name"
+                onClick={() => visit(item.authorId)}
+              >
+                {profileName(person(item.authorId))}
+              </button>{' '}
+              {item.body}
+              <div className="muted">{stamp(item.createdAt)}</div>
+            </div>
+          </div>
+        ))}
+        <Pager
+          page={pagedComments.page}
+          pageCount={pagedComments.pageCount}
+          onChange={setCommentPage}
+        />
+        <form
+          className="feedback comment-input"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (
+              comment.trim() &&
+              (await save('photoComments', {
+                id: uid(),
+                photoId: row.id,
+                authorId: me.id,
+                body: comment.trim(),
+                createdAt: now(),
+              }))
+            ) {
+              setComment('');
+              setCommentPage(Math.ceil((comments.length + 1) / 5));
+            }
+          }}
+        >
+          <Avatar person={me} size={28} />
+          <input
+            ref={commentInput}
+            aria-label="Write a comment on this photo"
+            placeholder="Write a comment…"
+            maxLength={20000}
+            value={comment}
+            onChange={(event) => setComment(event.target.value)}
+          />
+          <button className="gray-button" disabled={busy || !comment.trim()}>
+            Post
+          </button>
+        </form>
+      </section>
       <div className="photo-tags">
         <h2 className="info-heading">People in this photo</h2>
         {tags.length ? (

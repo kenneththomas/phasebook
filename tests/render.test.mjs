@@ -23,7 +23,7 @@ test('main screens render through Vite SSR with seeded state', async () => {
       screens,
       { Feed },
       { Avatar, applyMutation },
-      { Editor },
+      { Editor, PhotoViewer },
     ] = await Promise.all([
       vite.ssrLoadModule('/app/context.tsx'),
       vite.ssrLoadModule('/app/screens.tsx'),
@@ -115,6 +115,31 @@ test('main screens render through Vite SSR with seeded state', async () => {
       'Class Year',
     );
     render(React.createElement(screens.Photos), 'Photos');
+    const reactionPhoto = world.photos[0];
+    world.photoLikes.push({
+      id: 'render-photo-like',
+      photoId: reactionPhoto.id,
+      profileId: value.me.id,
+    });
+    world.photoComments.push({
+      id: 'render-photo-comment',
+      photoId: reactionPhoto.id,
+      authorId: 'p2',
+      body: 'Great photo!',
+      createdAt: '2010-03-21T12:00:00Z',
+    });
+    const photoHtml = render(
+      React.createElement(PhotoViewer, { row: reactionPhoto }),
+      'Great photo!',
+    );
+    assert.match(photoHtml, /Unlike/);
+    assert.match(photoHtml, /Write a comment on this photo/);
+    const withoutPhoto = applyMutation(world, {
+      upserts: {},
+      deletes: { photos: [reactionPhoto.id] },
+    });
+    assert.equal(withoutPhoto.photoLikes.length, 0);
+    assert.equal(withoutPhoto.photoComments.length, 0);
     render(
       React.createElement(screens.TaggedPhotos, { profileId: 'p1' }),
       'No tagged photos yet.',

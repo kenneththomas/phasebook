@@ -214,6 +214,17 @@ export function exportProfilePackage(store, profileId, now = new Date()) {
       add('photos', photo);
       add('albums', store.get('albums', photo.albumId));
     }
+  for (const table of ['photoLikes', 'photoComments'])
+    for (const row of state[table])
+      if (
+        (row.authorId || row.profileId) === rootId ||
+        chosen.photos.has(row.photoId)
+      ) {
+        add(table, row);
+        const photo = store.get('photos', row.photoId);
+        add('photos', photo);
+        add('albums', store.get('albums', photo.albumId));
+      }
   const mediaIds = new Set([root.avatarMediaId]);
   for (const row of chosen.albums.values()) mediaIds.add(row.coverMediaId);
   for (const row of chosen.photos.values()) mediaIds.add(row.mediaId);
@@ -340,6 +351,8 @@ export function validateProfilePackage(buffer) {
     entities.networks ??= [];
     entities.networkMemberships ??= [];
     entities.photoTags ??= [];
+    entities.photoLikes ??= [];
+    entities.photoComments ??= [];
   }
   if (
     !entities ||
@@ -524,6 +537,7 @@ export function importProfilePackage(store, buffer, strategy = 'cancel') {
           networkMemberships: ['networkId', 'profileId'],
           photoTags: ['photoId', 'profileId'],
           likes: ['postId', 'profileId'],
+          photoLikes: ['photoId', 'profileId'],
           eventGuests: ['eventId', 'profileId'],
         }[table];
         if (naturalFields && !store.resolveExternal(table, row.externalId)) {

@@ -1593,3 +1593,10 @@ h1 {
   height: 140px;
   object-fit: contain;
 }
+
+.photo-feedback {
+  margin: 14px 0;
+}
+.photo-feedback .comment {
+  overflow-wrap: anywhere;
+}
