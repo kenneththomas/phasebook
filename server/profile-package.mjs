@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
-import { references, schema, validateRecord } from './schema.mjs';
+import {
+  references,
+  schema,
+  validateRecord,
+  upgradePhotoData,
+  profileDefaults,
+} from './schema.mjs';
 import { decodeImage, remoteURL } from './media.mjs';
 
 export const PACKAGE_FORMAT = 'phasebook-package';
@@ -178,8 +184,11 @@ export function exportProfilePackage(store, profileId, now = new Date()) {
       add('events', store.get('events', row.eventId));
     }
   for (const row of state.friendships)
-    if (row.profileId === rootId || row.friendId === rootId)
+    if (row.profileId === rootId || row.friendId === rootId) {
       add('friendships', row);
+      for (const event of state.relationshipEvents)
+        if (event.friendshipId === row.id) add('relationshipEvents', event);
+    }
   for (const row of state.albums)
     if (row.ownerId === rootId) add('albums', row);
   for (const row of state.photos)
@@ -201,30 +210,33 @@ export function exportProfilePackage(store, profileId, now = new Date()) {
   for (const row of state.messages)
     if (row.senderId === rootId) add('messages', row);
   // Pull in only structural dependencies, never another person's activity graph.
+  for (const table of [
+    'photoLikes',
+    'photoComments',
+    'photoTags',
+    'profilePictures',
+  ])
+    for (const row of state[table])
+      if (
+        row.profileId === rootId ||
+        row.authorId === rootId ||
+        row.actorId === rootId ||
+        chosen.photos.has(row.photoId)
+      ) {
+        add(table, row);
+        add('photos', store.get('photos', row.photoId));
+      }
+  for (const row of state.postPhotos)
+    if (chosen.posts.has(row.postId)) {
+      add('postPhotos', row);
+      add('photos', store.get('photos', row.photoId));
+    }
   for (const post of chosen.posts.values()) {
     if (post.groupId) add('groups', store.get('groups', post.groupId));
     if (post.photoId) add('photos', store.get('photos', post.photoId));
   }
   for (const photo of chosen.photos.values())
     add('albums', store.get('albums', photo.albumId));
-  for (const tag of state.photoTags)
-    if (tag.profileId === rootId || chosen.photos.has(tag.photoId)) {
-      add('photoTags', tag);
-      const photo = store.get('photos', tag.photoId);
-      add('photos', photo);
-      add('albums', store.get('albums', photo.albumId));
-    }
-  for (const table of ['photoLikes', 'photoComments'])
-    for (const row of state[table])
-      if (
-        (row.authorId || row.profileId) === rootId ||
-        chosen.photos.has(row.photoId)
-      ) {
-        add(table, row);
-        const photo = store.get('photos', row.photoId);
-        add('photos', photo);
-        add('albums', store.get('albums', photo.albumId));
-      }
   const mediaIds = new Set([root.avatarMediaId]);
   for (const row of chosen.albums.values()) mediaIds.add(row.coverMediaId);
   for (const row of chosen.photos.values()) mediaIds.add(row.mediaId);
@@ -332,6 +344,7 @@ export function validateProfilePackage(buffer) {
     throw new Error('Package root profile is missing or inconsistent.');
   if (Object.hasOwn(data.rootProfile, 'id'))
     throw new Error('Portable records cannot contain local database ids.');
+  data.rootProfile = { ...profileDefaults, ...data.rootProfile };
   const validationProfile = { id: 'validation-profile', ...data.rootProfile };
   if (validationProfile.avatarMediaId !== null)
     validationProfile.avatarMediaId = 'validation-avatar';
@@ -348,11 +361,18 @@ export function validateProfilePackage(buffer) {
   }
   const entities = data.entities;
   if (entities && typeof entities === 'object') {
+    upgradePhotoData(entities);
     entities.networks ??= [];
     entities.networkMemberships ??= [];
-    entities.photoTags ??= [];
-    entities.photoLikes ??= [];
-    entities.photoComments ??= [];
+    entities.relationshipEvents ??= [];
+    entities.friendships = entities.friendships?.map((row) => ({
+      relationshipType: 'Friends',
+      howMet: '',
+      metAt: null,
+      closeness: '',
+      sharedHistory: '',
+      ...row,
+    }));
   }
   if (
     !entities ||
@@ -535,9 +555,11 @@ export function importProfilePackage(store, buffer, strategy = 'cancel') {
           friendships: ['profileId', 'friendId'],
           groupMembers: ['groupId', 'profileId'],
           networkMemberships: ['networkId', 'profileId'],
-          photoTags: ['photoId', 'profileId'],
           likes: ['postId', 'profileId'],
           photoLikes: ['photoId', 'profileId'],
+          photoTags: ['photoId', 'profileId'],
+          profilePictures: ['profileId', 'photoId'],
+          postPhotos: ['postId', 'photoId'],
           eventGuests: ['eventId', 'profileId'],
         }[table];
         if (naturalFields && !store.resolveExternal(table, row.externalId)) {
@@ -564,9 +586,18 @@ export function importProfilePackage(store, buffer, strategy = 'cancel') {
           if (equivalent) {
             const changes = {};
             if (table === 'networkMemberships') changes.metadata = row.metadata;
-            if (Object.hasOwn(row, 'status')) changes.status = row.status;
+            for (const field of [
+              'status',
+              'relationshipType',
+              'howMet',
+              'metAt',
+              'closeness',
+              'sharedHistory',
+            ])
+              if (Object.hasOwn(row, field)) changes[field] = row[field];
             if (Object.keys(changes).length)
               store.put(table, { ...equivalent, ...changes });
+            remaps[table].set(row.externalId, equivalent.externalId);
             continue;
           }
         }

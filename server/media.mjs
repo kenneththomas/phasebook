@@ -1,4 +1,14 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -7,6 +17,15 @@ const extensions = {
   'image/jpeg': 'jpg',
   'image/webp': 'webp',
 };
+function validImageHeader(bytes, mimeType) {
+  return mimeType === 'image/png'
+    ? bytes.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))
+    : mimeType === 'image/jpeg'
+      ? bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
+      : mimeType === 'image/webp' &&
+        bytes.toString('ascii', 0, 4) === 'RIFF' &&
+        bytes.toString('ascii', 8, 12) === 'WEBP';
+}
 export function decodeImage(dataUrl) {
   const match =
     typeof dataUrl === 'string' &&
@@ -22,17 +41,36 @@ export function decodeImage(dataUrl) {
     bytes.length > 3_000_000
   )
     throw new Error('Invalid image encoding.');
-  const detected =
-    bytes.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))
-      ? 'image/png'
-      : bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
-        ? 'image/jpeg'
-        : bytes.toString('ascii', 0, 4) === 'RIFF' &&
-            bytes.toString('ascii', 8, 12) === 'WEBP'
-          ? 'image/webp'
-          : null;
-  if (!detected) throw new Error('Image bytes do not match a supported image type.');
+  const detected = bytes
+    .subarray(0, 8)
+    .equals(Buffer.from('89504e470d0a1a0a', 'hex'))
+    ? 'image/png'
+    : bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
+      ? 'image/jpeg'
+      : bytes.toString('ascii', 0, 4) === 'RIFF' &&
+          bytes.toString('ascii', 8, 12) === 'WEBP'
+        ? 'image/webp'
+        : null;
+  if (!detected)
+    throw new Error('Image bytes do not match a supported image type.');
   return { bytes, mimeType: detected, extension: extensions[detected] };
+}
+export function validateImageFile(path, mimeType) {
+  if (!Object.hasOwn(extensions, mimeType))
+    throw new Error('Package contains an unsupported image type.');
+  const size = statSync(path).size;
+  if (!size || size > 3_000_000)
+    throw new Error('Packaged images must be no larger than 3 MB each.');
+  const bytes = Buffer.alloc(12),
+    descriptor = openSync(path, 'r');
+  try {
+    readSync(descriptor, bytes, 0, bytes.length, 0);
+  } finally {
+    closeSync(descriptor);
+  }
+  if (!validImageHeader(bytes, mimeType))
+    throw new Error('Image bytes do not match the image type.');
+  return { size, extension: extensions[mimeType] };
 }
 export function remoteURL(value) {
   let url;
@@ -99,6 +137,21 @@ export function storeUpload(directory, dataUrl, trackFile) {
   trackFile(path);
   return { sourceLocation, mimeType };
 }
+export function storeUploadFile(directory, sourcePath, mimeType, trackFile) {
+  const { extension } = validateImageFile(sourcePath, mimeType);
+  mkdirSync(directory, { recursive: true });
+  const sourceLocation = `${randomUUID()}.${extension}`;
+  const path = localPath(directory, sourceLocation);
+  copyFileSync(sourcePath, path, 1);
+  trackFile(path);
+  return { sourceLocation, mimeType };
+}
+
 export function filePayload(directory, row) {
-  return `data:${row.mimeType};base64,${readFileSync(localPath(directory, row.sourceLocation)).toString('base64')}`;
+  return (
+    'data:' +
+    row.mimeType +
+    ';base64,' +
+    readFileSync(localPath(directory, row.sourceLocation)).toString('base64')
+  );
 }

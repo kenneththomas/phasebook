@@ -84,10 +84,10 @@ test('profile pictures reuse an owner album, preserve history, and avoid duplica
     assert.notEqual(other.album.id, initial.album.id);
     assert.equal(
       store.getState().photos.filter((p) => p.ownerId === 'p1').length,
-      2,
+      3,
     );
     save('p1', null);
-    assert.equal(store.getState().photos.length, 3);
+    assert.equal(store.getState().photos.length, 5);
   } finally {
     await closeAndRemove(fixture);
   }
