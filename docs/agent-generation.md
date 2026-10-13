@@ -27,11 +27,14 @@ already supplied specific ones, and check existing profiles for duplicates.
 If the API fails, report the failure rather than silently inventing names.
 This uses the same request function as the profile editor's `useInventAName` hook.
 
-1. **Create** a run with the instruction and effective ISO date. Include optional
-   `networkId`, `profileId`, `allowNewProfiles`, `maxNewProfiles` and `density`.
-2. **Inspect** profiles, networks, membership dates and prior content. **Neighbors**
-   supplies friends, mutual friends and shared networks. **Schema** describes each
-   canonical entity you intend to write. Paginate rather than loading the world.
+1. **Create** a run with the instruction. Include optional `worldDate` (ISO date
+   for historical content; omit for present-day), `networkId`, `profileId`,
+   `allowNewProfiles`, `maxNewProfiles` and `density`.
+2. **Inspect** relevant context. For a profile- or network-scoped run, start with
+   **context**: one bounded packet containing profile voice guidance, plausible
+   participants with social evidence, recent activity, and requested schemas.
+   Use the smaller **inspect**, **neighbors**, and **schema** tools only to fill a
+   specific gap. Paginate rather than loading the world.
 3. Reason in this task about plausible, sparse participants and coherent activity.
    Respect known dates and profile budgets; qualify missing historical information.
 4. **Propose** `{operations:[...]}`. References to newly proposed records use
@@ -45,6 +48,31 @@ This uses the same request function as the profile editor's `useInventAName` hoo
    **Discard** rejects a proposal; **undo** reverses a committed run where safe.
 
 ## Examples (PowerShell)
+
+### Concise agent path
+
+Create a scoped run, then request only the context needed for posts and comments:
+
+```powershell
+'{"prompt":"Add a small, natural exchange on this wall","profileId":"p1","allowNewProfiles":false,"density":0.25}' | node server/generation-cli.mjs create
+'{"limit":6,"activityLimit":8,"tables":["posts","comments"]}' | node server/generation-cli.mjs context RUN_ID
+```
+
+Use the returned profile `voice`, `communicationStyle`, `behavioralTendencies`,
+interests, social evidence, and recent activity to choose a sparse subset. Submit
+canonical operations, present the concrete preview, then commit only when already
+authorized (or ask the user first):
+
+```powershell
+node server/generation-cli.mjs propose RUN_ID --input proposal.json
+node server/generation-cli.mjs get RUN_ID
+node server/generation-cli.mjs commit RUN_ID
+```
+
+That is the normal fast path. Run targeted `inspect`, `neighbors`, or `schema`
+calls only when the packet does not answer a concrete question.
+
+### Individual tools
 
 Create a run; use the actual requested date and instruction:
 

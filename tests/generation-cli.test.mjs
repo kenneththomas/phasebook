@@ -28,6 +28,15 @@ test('agent tools inspect, preview, commit and undo without a browser or model',
   );
   assert.ok((await call('schema', run.id, { table: 'posts' })).fields.authorId);
   assert.ok((await call('neighbors', run.id, { profileId: 'p1' })).rows.length);
+  const context = await call('context', run.id, {
+    profileId: 'p1',
+    limit: 2,
+    activityLimit: 2,
+    tables: ['posts', 'comments'],
+  });
+  assert.equal(context.profile.id, 'p1');
+  assert.equal(context.participants.length, 2);
+  assert.ok(context.schemas.posts.fields.authorId);
   await call('propose', run.id, {
     operations: [
       {
@@ -106,6 +115,7 @@ test('agent CLI reads Unicode JSON from stdin and produces machine-readable erro
   const help = await execute(['--help']);
   assert.equal(help.code, 0);
   assert.match(help.stdout, /No browser/);
+  assert.match(help.stdout, /context <run-id>/);
 });
 
 test('agent transport rejects remote hosts, empty selections and unknown commands', async () => {

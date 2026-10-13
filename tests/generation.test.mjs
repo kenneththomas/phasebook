@@ -249,13 +249,10 @@ test('temporal inspection, membership and content validation', (t) => {
     g.inspect(run.id, 'inspect', { table: 'posts', id: future.id }).rows.length,
     0,
   );
-  assert.throws(
-    () =>
-      g.propose(run.id, [
-        { ...post(), data: { ...post().data, createdAt: '2014-01-01' } },
-      ]),
-    /world date/,
-  );
+  const futureOperation = g.propose(run.id, [
+    { ...post(), data: { ...post().data, createdAt: '2014-01-01' } },
+  ]);
+  assert.equal(futureOperation.status, 'proposed');
   assert.throws(
     () =>
       g.propose(run.id, [
@@ -270,6 +267,83 @@ test('temporal inspection, membership and content validation', (t) => {
   );
   assert.ok(g.inspect(run.id, 'neighbors', { profileId: 'p1' }).rows.length);
   assert.ok(g.inspect(run.id, 'schema', { table: 'events' }).fields.startsAt);
+});
+test('generation inspections include relationship context and historical events', (t) => {
+  const { store, generation: g, run } = setup(t);
+  const friendship = store
+    .getState()
+    .friendships.find(
+      (row) =>
+        row.status === 'accepted' &&
+        [row.profileId, row.friendId].includes('p1'),
+    );
+  store.put('friendships', {
+    ...friendship,
+    relationshipType: 'Dating',
+    closeness: 'Very close',
+    sharedHistory: 'They make music together.',
+  });
+  store.put('relationshipEvents', {
+    friendshipId: friendship.id,
+    type: 'relationship_changed',
+    label: 'Started dating',
+    details: '',
+    occurredAt: '2012-10-01',
+    createdAt: '2012-10-01T12:00:00Z',
+  });
+  store.put('relationshipEvents', {
+    friendshipId: friendship.id,
+    type: 'milestone',
+    label: 'Future anniversary',
+    details: '',
+    occurredAt: '2014-10-01',
+    createdAt: '2012-10-01T12:00:00Z',
+  });
+  const neighbor = g
+    .inspect(run.id, 'neighbors', { profileId: 'p1' })
+    .rows.find((row) => row.friendship?.id === friendship.id);
+  assert.equal(neighbor.friendship.relationshipType, 'Dating');
+  assert.deepEqual(
+    neighbor.relationshipEvents.map((event) => event.label),
+    ['Started dating'],
+  );
+  assert.deepEqual(
+    g
+      .inspect(run.id, 'inspect', {
+        table: 'relationshipEvents',
+        profileId: 'p1',
+      })
+      .rows.map((event) => event.label),
+    ['Started dating'],
+  );
+});
+test('compact context carries profile voice, social evidence, activity and schemas', (t) => {
+  const store = createStore(':memory:');
+  t.after(() => store.close());
+  store.put('profiles', {
+    ...store.get('profiles', 'p1'),
+    voice: 'warm and curious',
+    communicationStyle: 'brief direct questions',
+    behavioralTendencies: 'shares music with one friend at a time',
+  });
+  const g = createGeneration(store),
+    run = g.create({
+      prompt: 'Create a small conversation in Alex’s voice.',
+      profileId: 'p1',
+      density: 0.25,
+    }),
+    result = g.inspect(run.id, 'context', {
+      limit: 2,
+      activityLimit: 2,
+      tables: ['posts', 'comments'],
+    });
+  assert.equal(result.profile.voice, 'warm and curious');
+  assert.equal(result.profile.communicationStyle, 'brief direct questions');
+  assert.equal(result.participants.length, 2);
+  assert.ok(result.participants[0].relationship.id);
+  assert.ok(result.schemas.comments.references.postId);
+  assert.ok(result.recentActivity.posts.length <= 2);
+  assert.equal(g.get(run.id).inspected[0].tool, 'context');
 });
 test('media reference validation and generic events/groups support', (t) => {
   const { store, generation: g, run } = setup(t);
@@ -512,9 +586,14 @@ test('OpenRouter adapter sends the compatible JSON chat request', async () => {
       const body = JSON.parse(options.body);
       assert.equal(body.model, 'provider/model');
       assert.deepEqual(body.response_format, { type: 'json_object' });
-      assert.equal(body.messages[1].content, JSON.stringify({ guidance: 'test' }));
+      assert.equal(
+        body.messages[1].content,
+        JSON.stringify({ guidance: 'test' }),
+      );
       return new Response(
-        JSON.stringify({ choices: [{ message: { content: '{"operations":[]}' } }] }),
+        JSON.stringify({
+          choices: [{ message: { content: '{"operations":[]}' } }],
+        }),
       );
     },
   });
