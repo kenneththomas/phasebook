@@ -53,5 +53,6 @@ it already exists under a different external ID, avoiding uniqueness conflicts.
 Any validation or write failure rolls back database changes and newly written
 media files.
 
-Full-world JSON export/import remains a distinct replacement-and-backup feature
-under **Manage this world**.
+Full-world `.phasebook` export/import remains a distinct replacement-and-backup
+feature under **Manage this world**. It uses `type: "world"`; profile packages use
+`type: "profile"` and merge rather than replace.

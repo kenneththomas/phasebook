@@ -9,6 +9,7 @@ export type CollectionName =
   | 'networkMemberships'
   | 'profiles'
   | 'friendships'
+  | 'relationshipEvents'
   | 'posts'
   | 'comments'
   | 'likes'
@@ -19,10 +20,12 @@ export type CollectionName =
   | 'groups'
   | 'groupMembers'
   | 'photos'
+  | 'albums'
+  | 'postPhotos'
   | 'photoLikes'
   | 'photoComments'
   | 'photoTags'
-  | 'albums'
+  | 'profilePictures'
   | 'media';
 export type World = Record<CollectionName, Row[]> & {
   schemaVersion: number;
@@ -74,6 +77,7 @@ const collections: CollectionName[] = [
   'networkMemberships',
   'profiles',
   'friendships',
+  'relationshipEvents',
   'posts',
   'comments',
   'likes',
@@ -84,15 +88,35 @@ const collections: CollectionName[] = [
   'groups',
   'groupMembers',
   'photos',
+  'albums',
+  'postPhotos',
   'photoLikes',
   'photoComments',
   'photoTags',
-  'albums',
+  'profilePictures',
   'media',
 ];
 const references: Partial<
   Record<CollectionName, Record<string, [CollectionName, 'cascade' | 'null']>>
 > = {
+  postPhotos: { postId: ['posts', 'cascade'], photoId: ['photos', 'cascade'] },
+  photoLikes: {
+    photoId: ['photos', 'cascade'],
+    profileId: ['profiles', 'cascade'],
+  },
+  photoComments: {
+    photoId: ['photos', 'cascade'],
+    authorId: ['profiles', 'cascade'],
+  },
+  photoTags: {
+    photoId: ['photos', 'cascade'],
+    profileId: ['profiles', 'cascade'],
+    actorId: ['profiles', 'cascade'],
+  },
+  profilePictures: {
+    photoId: ['photos', 'cascade'],
+    profileId: ['profiles', 'cascade'],
+  },
   networkMemberships: {
     profileId: ['profiles', 'cascade'],
     networkId: ['networks', 'cascade'],
@@ -100,6 +124,9 @@ const references: Partial<
   friendships: {
     profileId: ['profiles', 'cascade'],
     friendId: ['profiles', 'cascade'],
+  },
+  relationshipEvents: {
+    friendshipId: ['friendships', 'cascade'],
   },
   groups: { creatorId: ['profiles', 'null'] },
   groupMembers: {
@@ -114,18 +141,6 @@ const references: Partial<
     ownerId: ['profiles', 'cascade'],
     albumId: ['albums', 'cascade'],
     mediaId: ['media', 'cascade'],
-  },
-  photoLikes: {
-    photoId: ['photos', 'cascade'],
-    profileId: ['profiles', 'cascade'],
-  },
-  photoComments: {
-    photoId: ['photos', 'cascade'],
-    authorId: ['profiles', 'cascade'],
-  },
-  photoTags: {
-    photoId: ['photos', 'cascade'],
-    profileId: ['profiles', 'cascade'],
   },
   posts: {
     authorId: ['profiles', 'cascade'],
@@ -149,6 +164,7 @@ const references: Partial<
     profileId: ['profiles', 'cascade'],
     actorId: ['profiles', 'cascade'],
     postId: ['posts', 'null'],
+    photoId: ['photos', 'null'],
   },
   events: { creatorId: ['profiles', 'cascade'] },
   eventGuests: {
@@ -224,11 +240,38 @@ export const emptyProfile = {
   politicalViews: '',
   religiousViews: '',
   interests: '',
+  voice: '',
+  communicationStyle: '',
+  behavioralTendencies: '',
   state: 'full',
   avatarMediaId: null,
 };
 export const uid = () => crypto.randomUUID();
 export const now = () => new Date().toISOString();
+export function ageFromBirthday(
+  birthday: unknown,
+  today = new Date(),
+): number | null {
+  if (typeof birthday !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(birthday))
+    return null;
+
+  const [year, month, day] = birthday.split('-').map(Number);
+  const birthdayDate = new Date(year, month - 1, day);
+  if (
+    birthdayDate.getFullYear() !== year ||
+    birthdayDate.getMonth() !== month - 1 ||
+    birthdayDate.getDate() !== day ||
+    birthdayDate > today
+  )
+    return null;
+
+  let age = today.getFullYear() - year;
+  const hasHadBirthday =
+    today.getMonth() > month - 1 ||
+    (today.getMonth() === month - 1 && today.getDate() >= day);
+  if (!hasHadBirthday) age -= 1;
+  return age;
+}
 export function stamp(date: string) {
   return new Date(date).toLocaleString('en-US', {
     month: 'long',

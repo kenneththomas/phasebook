@@ -847,6 +847,120 @@ h1 {
   margin: 12px 0;
   color: #666;
 }
+
+.title-actions,
+.section-heading-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.friendship-hero {
+  border: 1px solid #c7cde0;
+  background: linear-gradient(#f7f8fc, #fff);
+  padding: 20px;
+  text-align: center;
+}
+
+.friendship-people {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+}
+
+.friendship-people > div {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  min-width: 120px;
+}
+
+.friendship-people .avatar {
+  border: 4px solid #fff;
+  box-shadow: 0 0 0 1px #aab2c8;
+}
+
+.friendship-ampersand {
+  color: #8992aa;
+  font:
+    bold 26px Georgia,
+    serif;
+}
+
+.friendship-hero h2 {
+  margin: 18px 0 8px;
+  color: #3b5998;
+  font-size: 17px;
+}
+
+.relationship-summary {
+  max-width: 570px;
+  margin: 0 auto;
+  color: #444;
+}
+
+.relationship-summary p {
+  margin: 5px 0;
+}
+
+.friendship-section {
+  margin-top: 18px;
+}
+
+.friendship-section > h2,
+.section-heading-row h2 {
+  margin: 0 0 9px;
+  border-bottom: 1px solid #d8dfea;
+  padding-bottom: 5px;
+  color: #3b5998;
+  font-size: 14px;
+}
+
+.section-heading-row {
+  justify-content: space-between;
+  border-bottom: 1px solid #d8dfea;
+  margin-bottom: 9px;
+  padding-bottom: 5px;
+}
+
+.section-heading-row h2 {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.relationship-timeline {
+  margin: 0;
+  padding: 0 0 0 18px;
+}
+
+.relationship-timeline li {
+  margin: 0 0 10px;
+  padding-left: 5px;
+}
+
+.relationship-timeline time {
+  display: block;
+  margin-top: 2px;
+  color: #777;
+  font-size: 11px;
+}
+
+.relationship-timeline p {
+  margin: 3px 0 0;
+}
+
+.shared-photos-placeholder {
+  border: 1px dashed #aab2c8;
+  background: #f7f7f7;
+  padding: 12px;
+  color: #666;
+}
+
+.shared-photos-placeholder h2 {
+  margin-top: 0;
+}
 .info-heading {
   font-size: 13px;
   font-weight: bold;
@@ -947,6 +1061,163 @@ h1 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 20px 12px;
   padding: 12px 0;
+}
+.photo-tabs,
+.photo-toolbar,
+.photo-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+  font-size: 11px;
+}
+.photo-tabs {
+  border-bottom: 1px solid #ccc;
+  padding-bottom: 8px;
+}
+.photo-tabs .selected {
+  font-weight: bold;
+  color: #333;
+}
+.photo-navigation {
+  justify-content: space-between;
+}
+.empty-album {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1.1;
+  background: #f2f2f2;
+  border: 1px solid #ccc;
+  color: #777;
+}
+.photo-stage {
+  position: relative;
+  display: table;
+  max-width: 100%;
+  margin: 0 auto 12px;
+}
+.photo-surface {
+  display: block;
+  max-width: 100%;
+}
+.photo-surface img {
+  display: block;
+  max-width: 100%;
+  max-height: 55vh;
+  width: auto;
+  height: auto;
+  margin: auto;
+}
+.tagging .photo-surface {
+  cursor: crosshair;
+}
+.photo-tag,
+.tag-position {
+  position: absolute;
+  transform: translate(-50%, -50%);
+}
+.photo-tag {
+  width: 38px;
+  height: 38px;
+  border: 1px solid transparent;
+}
+.photo-tag:hover,
+.photo-tag:focus-visible {
+  border-color: white;
+  box-shadow: 0 0 0 1px #333;
+}
+.photo-tag span {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: white;
+  color: #3b5998;
+  border: 1px solid #ccc;
+  padding: 3px 6px;
+  white-space: nowrap;
+  z-index: 2;
+}
+.photo-tag:hover span,
+.photo-tag:focus-visible span {
+  display: block;
+}
+.tag-position {
+  pointer-events: none;
+  color: white;
+  background: #3b5998;
+  padding: 0 4px;
+  font-size: 20px;
+}
+.photo-confirm {
+  background: #fff9de;
+  border: 1px solid #e2c76b;
+  padding: 12px;
+  margin: 12px 0;
+}
+.photo-confirm p {
+  margin-bottom: 10px;
+}
+.photo-tag-form,
+.photo-options {
+  padding: 10px 0;
+  border-top: 1px solid #ddd;
+}
+.photo-tag-form input[type='number'] {
+  width: 80px;
+}
+.photo-comment-form {
+  padding: 8px;
+}
+.photo-comment-form textarea {
+  width: 100%;
+}
+.photo-upload-fields {
+  border: 0;
+  min-width: 0;
+  padding: 0;
+}
+.upload-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 14px 0;
+}
+.upload-photo-grid img {
+  width: 100%;
+  height: 140px;
+  object-fit: contain;
+  background: #f2f2f2;
+}
+.post-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+.post-photo-grid .post-photo {
+  width: 100%;
+  height: 160px;
+  object-fit: cover;
+}
+.period-dialog.photo-dialog[data-slot='dialog-content'] {
+  width: 760px;
+  max-width: calc(100vw - 32px);
+}
+.form-field > select {
+  display: block;
+  width: 100%;
+  margin-top: 5px;
+  padding: 5px;
+  border: 1px solid #bdc7d8;
+  background: white;
+  color: #333;
+  font-weight: normal;
+}
+.photo-options summary {
+  cursor: pointer;
+  color: #3b5998;
 }
 .album {
   text-align: left;
@@ -1297,22 +1568,6 @@ h1 {
 .import-preview .dialog-actions {
   margin: 10px -12px -12px;
 }
-.photo-tags {
-  margin-top: 16px;
-}
-.photo-tag,
-.photo-tag-form {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 8px 0;
-}
-.photo-tag-form {
-  flex-wrap: wrap;
-}
-.tagged-photos {
-  margin-top: 24px;
-}
 .full-photo {
   width: 100%;
   max-height: 55vh;
@@ -1567,6 +1822,22 @@ h1 {
 .generation-error {
   color: #a11;
 }
+.generation-progress {
+  display: grid;
+  gap: 4px;
+  margin: 12px 0;
+  padding: 10px;
+  border: 1px solid #b8cbe3;
+  background: #eef5fc;
+}
+.generation-progress span {
+  color: #345;
+}
+.generation-progress p {
+  margin: 4px 0 0;
+  color: #567;
+}
+
 .profile-crop-preview {
   position: relative;
   width: min(100%, 280px);
@@ -1577,26 +1848,4 @@ h1 {
 }
 .profile-crop-preview img {
   position: absolute;
-}
-.photo-upload-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-}
-.photo-upload-card {
-  min-width: 0;
-  padding: 10px;
-  border: 1px solid #ccc;
-}
-.photo-upload-card img {
-  width: 100%;
-  height: 140px;
-  object-fit: contain;
-}
-
-.photo-feedback {
-  margin: 14px 0;
-}
-.photo-feedback .comment {
-  overflow-wrap: anywhere;
 }

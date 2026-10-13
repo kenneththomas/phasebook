@@ -10,7 +10,9 @@ export function Generation() {
   const [working, setWorking] = useState(false);
   const [error, setError] = useState('');
   const [prompt, setPrompt] = useState('');
-  const [worldDate, setWorldDate] = useState(() => new Date().toISOString().slice(0, 16));
+  const [worldDate, setWorldDate] = useState(() =>
+    new Date().toISOString().slice(0, 16),
+  );
   const [profileId, setProfileId] = useState('');
   const [networkId, setNetworkId] = useState('');
   const [allowNewProfiles, setAllowNewProfiles] = useState(false);
@@ -21,6 +23,7 @@ export function Generation() {
   const [table, setTable] = useState('profiles');
   const [query, setQuery] = useState('');
   const [inspection, setInspection] = useState('');
+  const [generatingId, setGeneratingId] = useState('');
   const refresh = async () => {
     const result = await request<{ runs: Row[]; configured: boolean }>(
       'generation',
@@ -36,6 +39,24 @@ export function Generation() {
       })
       .catch((e) => setError(e.message));
   }, []);
+  useEffect(() => {
+    if (!generatingId) return;
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const value = await request<Row>(`generation/${generatingId}`);
+        if (!stopped) setCurrent(value);
+      } catch {
+        // The generation request reports its own error when it completes.
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 1000);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [generatingId]);
   const load = (value: Row) => {
     setCurrent(value);
     setSelected((value.operations ?? []).map((op: Row) => op.key));
@@ -228,7 +249,10 @@ export function Generation() {
               <button
                 className="blue-button"
                 disabled={!configured}
-                onClick={() => void action('generate')}
+                onClick={() => {
+                  setGeneratingId(current.id);
+                  void action('generate').finally(() => setGeneratingId(''));
+                }}
               >
                 Ask model to inspect and propose
               </button>
@@ -239,6 +263,31 @@ export function Generation() {
                 </p>
               )}
             </>
+          )}
+          {current.status === 'inspecting' && current.progress && (
+            <div className="generation-progress" aria-live="polite">
+              <strong>Processing generation</strong>
+              <span>
+                Phase: {String(current.progress.phase).replaceAll('-', ' ')}
+              </span>
+              <span>
+                Model turn: {current.progress.turn ?? 0} of{' '}
+                {current.progress.maxTurns ?? 12}
+              </span>
+              <span>
+                World inspections: {current.progress.inspections ?? 0}
+              </span>
+              {current.progress.startedAt && (
+                <span>
+                  Started:{' '}
+                  {new Date(current.progress.startedAt).toLocaleTimeString()}
+                </span>
+              )}
+              <p>
+                The model may take up to 3 minutes per turn. This page will
+                update as each turn and inspection completes.
+              </p>
+            </div>
           )}
           {['draft', 'failed', 'proposed'].includes(current.status) && (
             <>

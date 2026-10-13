@@ -1,6 +1,7 @@
 import { NetworkEditor } from './networks';
-import { useRef, useState } from 'react';
-import { Pager, pageRows } from './pagination';
+import { PhotoViewer, PhotoUploader } from './photos';
+export { PhotoViewer } from './photos';
+import { useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -15,23 +16,21 @@ import {
 } from '@/components/ui/alert-dialog';
 import { NativeSelect } from '@/components/ui/native-select';
 import {
-  mediaURL,
   albumName,
   profileName,
   Avatar,
   emptyProfile,
   uid,
   now,
-  stamp,
   type Row,
   type World,
 } from './shared';
 import { useApp, type ModalState } from './context';
-import { MediaEditor, PhotoBatchEditor } from './media-editor';
+import { MediaEditor } from './media-editor';
 import { useInventAName } from '../hooks/use-invent-a-name';
 
 export function Modal({ modal }: { modal: ModalState }) {
-  const { open, world } = useApp();
+  const { open, world, error } = useApp();
   if (!modal) return null;
   const titles: Record<string, string> = {
     switch: 'Log In · Choose a Profile',
@@ -40,12 +39,16 @@ export function Modal({ modal }: { modal: ModalState }) {
     network: 'Manage Network',
     networkMembership: 'Manage Network Membership',
     post: 'Edit Post',
-    photo: 'Upload a Photo',
+    photo: modal.row ? 'Edit Photo' : 'Upload Photos',
     viewPhoto: modal.row ? albumName(world, modal.row.albumId) : 'Photo',
-    album: 'Edit Album',
+    album: modal.row ? 'Edit Album' : 'Create Album',
     event: modal.row ? 'Edit Event' : 'Create an Event',
     group: modal.row ? 'Edit Group' : 'Create a Group',
     message: 'New Message',
+    relationship: 'Edit Relationship Context',
+    relationshipEvent: modal.row
+      ? 'Edit Relationship Event'
+      : 'Add Relationship Event',
   };
   return (
     <Dialog
@@ -70,6 +73,11 @@ export function Modal({ modal }: { modal: ModalState }) {
                 : 'Saved in your local Phasebook world.'}
         </DialogDescription>
         <div className="dialog-body">
+          {error && (
+            <p className="photo-confirm" role="alert">
+              {error}
+            </p>
+          )}
           {modal.kind === 'switch' ? (
             <Switcher />
           ) : modal.kind === 'manage' ? (
@@ -81,12 +89,24 @@ export function Modal({ modal }: { modal: ModalState }) {
               row={modal.row}
             />
           ) : modal.kind === 'viewPhoto' ? (
-            <PhotoViewer row={modal.row!} />
+            <PhotoViewer
+              key={modal.row!.id}
+              row={modal.row!}
+              photoIds={modal.photoIds}
+            />
+          ) : modal.kind === 'photo' && !modal.row ? (
+            <PhotoUploader
+              ownerId={modal.ownerId}
+              albumId={modal.albumId}
+              onSaved={modal.onSaved}
+            />
           ) : (
             <Editor
               key={modal.kind + (modal.row?.id || 'new')}
               kind={modal.kind}
               row={modal.row}
+              friendshipId={modal.friendshipId}
+              ownerId={modal.ownerId}
               onSaved={modal.onSaved}
             />
           )}
@@ -134,213 +154,17 @@ function Switcher() {
     </>
   );
 }
-export function PhotoViewer({ row: initialRow }: { row: Row }) {
-  const { world, me, person, open, save, remove, busy, go } = useApp();
-  const [profileId, setProfileId] = useState('');
-  const [comment, setComment] = useState('');
-  const [commentPage, setCommentPage] = useState(1);
-  const commentInput = useRef<HTMLInputElement>(null);
-  const row =
-    world.photos.find((photo) => photo.id === initialRow.id) || initialRow;
-  const likes = world.photoLikes.filter((like) => like.photoId === row.id);
-  const mine = likes.find((like) => like.profileId === me.id);
-  const comments = world.photoComments
-    .filter((item) => item.photoId === row.id)
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  const pagedComments = pageRows(comments, commentPage, 5);
-  const visit = (id: string) => {
-    open(null);
-    go('profile', id);
-  };
-  const tags = world.photoTags.filter((tag) => tag.photoId === row.id);
-  const available = world.profiles.filter(
-    (profile) => !tags.some((tag) => tag.profileId === profile.id),
-  );
-  return (
-    <>
-      <img
-        className="full-photo"
-        src={mediaURL(world, row.mediaId)}
-        alt={row.caption}
-      />
-      <p className="photo-caption">{row.caption}</p>
-      <p className="muted">
-        Added by {profileName(person(row.ownerId))} ·{' '}
-        {albumName(world, row.albumId)}
-      </p>
-      <section className="photo-feedback" aria-label="Photo likes and comments">
-        <div className="post-actions">
-          <button
-            disabled={busy}
-            aria-pressed={Boolean(mine)}
-            onClick={() =>
-              mine
-                ? remove('photoLikes', mine.id)
-                : save('photoLikes', {
-                    id: uid(),
-                    photoId: row.id,
-                    profileId: me.id,
-                  })
-            }
-          >
-            {mine ? 'Unlike' : 'Like'}
-          </button>{' '}
-          ·{' '}
-          <button onClick={() => commentInput.current?.focus()}>Comment</button>
-          <span>
-            {' '}
-            · {likes.length} {likes.length === 1 ? 'like' : 'likes'} ·{' '}
-            {comments.length} {comments.length === 1 ? 'comment' : 'comments'}
-          </span>
-        </div>
-        {likes.length > 0 && (
-          <div className="feedback likes">
-            <span>
-              {likes.slice(0, 3).map((like, index) => (
-                <span key={like.id}>
-                  {index > 0 ? ', ' : ''}
-                  <button
-                    className="person-name"
-                    onClick={() => visit(like.profileId)}
-                  >
-                    {like.profileId === me.id
-                      ? 'You'
-                      : profileName(person(like.profileId))}
-                  </button>
-                </span>
-              ))}
-              {likes.length > 3 ? ` and ${likes.length - 3} others` : ''} liked
-              this photo.
-            </span>
-          </div>
-        )}
-        {pagedComments.rows.map((item) => (
-          <div className="feedback comment" key={item.id}>
-            <Avatar person={person(item.authorId)} size={32} />
-            <div>
-              <button
-                className="person-name"
-                onClick={() => visit(item.authorId)}
-              >
-                {profileName(person(item.authorId))}
-              </button>{' '}
-              {item.body}
-              <div className="muted">{stamp(item.createdAt)}</div>
-            </div>
-          </div>
-        ))}
-        <Pager
-          page={pagedComments.page}
-          pageCount={pagedComments.pageCount}
-          onChange={setCommentPage}
-        />
-        <form
-          className="feedback comment-input"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            if (
-              comment.trim() &&
-              (await save('photoComments', {
-                id: uid(),
-                photoId: row.id,
-                authorId: me.id,
-                body: comment.trim(),
-                createdAt: now(),
-              }))
-            ) {
-              setComment('');
-              setCommentPage(Math.ceil((comments.length + 1) / 5));
-            }
-          }}
-        >
-          <Avatar person={me} size={28} />
-          <input
-            ref={commentInput}
-            aria-label="Write a comment on this photo"
-            placeholder="Write a comment…"
-            maxLength={20000}
-            value={comment}
-            onChange={(event) => setComment(event.target.value)}
-          />
-          <button className="gray-button" disabled={busy || !comment.trim()}>
-            Post
-          </button>
-        </form>
-      </section>
-      <div className="photo-tags">
-        <h2 className="info-heading">People in this photo</h2>
-        {tags.length ? (
-          tags.map((tag) => (
-            <div className="photo-tag" key={tag.id}>
-              <button
-                className="person-name"
-                onClick={() => {
-                  open(null);
-                  go('profile', tag.profileId);
-                }}
-              >
-                {profileName(person(tag.profileId))}
-              </button>
-              <button
-                className="text-link"
-                disabled={busy}
-                onClick={() => remove('photoTags', tag.id)}
-                aria-label={`Remove tag for ${profileName(person(tag.profileId))}`}
-              >
-                Remove tag
-              </button>
-            </div>
-          ))
-        ) : (
-          <p className="muted">No one tagged yet.</p>
-        )}
-        <form
-          className="photo-tag-form"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            if (
-              profileId &&
-              (await save('photoTags', {
-                id: uid(),
-                photoId: row.id,
-                profileId,
-              }))
-            )
-              setProfileId('');
-          }}
-        >
-          <NativeSelect
-            aria-label="Person to tag"
-            value={profileId}
-            onChange={(event) => setProfileId(event.target.value)}
-          >
-            <option value="">Choose a person…</option>
-            {available.map((profile) => (
-              <option key={profile.id} value={profile.id}>
-                {profileName(profile)}
-              </option>
-            ))}
-          </NativeSelect>
-          <button
-            className="gray-button"
-            disabled={
-              busy || !available.some((profile) => profile.id === profileId)
-            }
-          >
-            Tag Person
-          </button>
-        </form>
-      </div>
-      <div className="dialog-actions">
-        <button onClick={() => open({ kind: 'photo', row })}>Edit Photo</button>
-      </div>
-    </>
-  );
-}
 function Manage() {
   const { world, run, busy, fail, open } = useApp();
   const [incoming, setIncoming] = useState<World | null>(null);
   const [confirm, setConfirm] = useState(false);
+  const [worldFile, setWorldFile] = useState<File | null>(null);
+  const [worldPreview, setWorldPreview] = useState<{
+    exportedAt: string;
+    counts: Record<string, number>;
+    mediaCount: number;
+  } | null>(null);
+  const [worldBusy, setWorldBusy] = useState(false);
   const [profileFile, setProfileFile] = useState<File | null>(null);
   const [profilePreview, setProfilePreview] = useState<{
     profile: { name: string; externalId: string; status: string };
@@ -370,16 +194,39 @@ function Manage() {
       fail((e as Error).message);
     }
   };
-  const packageRequest = async (path: string, file: File) => {
+  const packageRequest = async (
+    path: string,
+    file: File,
+    contentType = 'application/vnd.phasebook.profile+zip',
+  ) => {
     const response = await fetch('/api/' + path, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/vnd.phasebook.profile+zip' },
+      headers: { 'Content-Type': contentType },
       body: file,
     });
     const value = await response.json();
     if (!response.ok)
-      throw new Error(value.error || 'Could not read profile package.');
+      throw new Error(value.error || 'Could not read Phasebook package.');
     return value;
+  };
+  const readWorldPackage = async (file?: File) => {
+    setWorldPreview(null);
+    setWorldFile(null);
+    if (!file) return;
+    try {
+      setWorldBusy(true);
+      const preview = await packageRequest(
+        'world-packages/preview',
+        file,
+        'application/vnd.phasebook.world+zip',
+      );
+      setWorldFile(file);
+      setWorldPreview(preview);
+    } catch (e) {
+      fail((e as Error).message);
+    } finally {
+      setWorldBusy(false);
+    }
   };
   const readProfilePackage = async (file?: File) => {
     setProfilePreview(null);
@@ -434,24 +281,62 @@ function Manage() {
       </div>
       <h3>Export your world</h3>
       <p className="form-help">
-        Download every record, relationship, and uploaded image in one JSON
-        file.
+        Download every record, relationship, and image in one Phasebook package.
+        Images are stored as files, never inside JSON.
       </p>
-      <a className="blue-button" href="/api/export" download="phasebook.json">
-        Export JSON
+      <a
+        className="blue-button"
+        href="/api/world-packages/export"
+        download="phasebook-world.phasebook"
+      >
+        Export World Package
       </a>
       <hr />
       <h3>Import a world</h3>
       <p className="form-help">
-        Replace this world with a Phasebook export. A backup of the current
-        world is saved in the data folder before replacement.
+        Replace this world from a Phasebook package. The package is validated
+        first, and a complete package backup is saved before replacement.
       </p>
       <input
         type="file"
-        accept=".json,application/json"
-        aria-label="Import JSON file"
-        onChange={(e) => readImport(e.target.files?.[0])}
+        accept=".phasebook,application/vnd.phasebook.world+zip,application/zip"
+        aria-label="Import world package"
+        disabled={worldBusy}
+        onChange={(e) => void readWorldPackage(e.target.files?.[0])}
       />
+      {worldBusy && <p className="form-help">Validating world package…</p>}
+      {worldPreview && worldFile && (
+        <div className="import-preview">
+          <b>{worldPreview.counts.profiles ?? 0} profiles</b> and{' '}
+          {worldPreview.counts.posts ?? 0} posts · {worldPreview.mediaCount}{' '}
+          packaged images
+          <div className="dialog-actions">
+            <button
+              className="blue-button"
+              disabled={worldBusy}
+              onClick={() => {
+                setIncoming(null);
+                setConfirm(true);
+              }}
+            >
+              Review & Replace World
+            </button>
+          </div>
+        </div>
+      )}
+      <details>
+        <summary>Import a legacy JSON export</summary>
+        <p className="form-help">
+          Older schemaVersion 1 and 2 JSON exports remain supported for
+          migration.
+        </p>
+        <input
+          type="file"
+          accept=".json,application/json"
+          aria-label="Import legacy JSON file"
+          onChange={(e) => readImport(e.target.files?.[0])}
+        />
+      </details>
       {incoming && (
         <div className="import-preview">
           <b>{incoming.profiles.length} profiles</b> and{' '}
@@ -460,7 +345,10 @@ function Manage() {
             <button
               className="blue-button"
               disabled={busy}
-              onClick={() => setConfirm(true)}
+              onClick={() => {
+                setWorldFile(null);
+                setConfirm(true);
+              }}
             >
               Review & Replace World
             </button>
@@ -534,29 +422,43 @@ function Manage() {
             Replace this world?
           </AlertDialogTitle>
           <AlertDialogDescription className="dialog-description">
-            The selected JSON will replace all current records. A backup will be
-            saved locally. Invalid files leave your current world unchanged.
+            The selected {worldFile ? 'package' : 'legacy JSON'} will replace
+            all current records. A complete world package backup will be saved
+            locally. Invalid files leave your current world unchanged.
           </AlertDialogDescription>
           <div className="dialog-actions">
             <button
               className="gray-button"
-              disabled={busy}
+              disabled={busy || worldBusy}
               onClick={() => setConfirm(false)}
             >
               Cancel
             </button>
             <button
               className="blue-button"
-              disabled={busy}
+              disabled={busy || worldBusy}
               onClick={async () => {
-                if (await run('import', incoming)) {
+                if (worldFile) {
+                  try {
+                    setWorldBusy(true);
+                    await packageRequest(
+                      'world-packages/import',
+                      worldFile,
+                      'application/vnd.phasebook.world+zip',
+                    );
+                    location.reload();
+                  } catch (e) {
+                    fail((e as Error).message);
+                    setWorldBusy(false);
+                  }
+                } else if (await run('import', incoming)) {
                   setConfirm(false);
                   open(null);
                   location.hash = '#home';
                 }
               }}
             >
-              Replace World
+              {worldBusy ? 'Importing…' : 'Replace World'}
             </button>
           </div>
         </AlertDialogContent>
@@ -655,10 +557,14 @@ function Manage() {
 export function Editor({
   kind,
   row,
+  friendshipId,
+  ownerId,
   onSaved,
 }: {
   kind: string;
   row?: Row;
+  friendshipId?: string;
+  ownerId?: string;
   onSaved?: (row: Row) => void;
 }) {
   const { me, world, save, run, open, fail, busy, go } = useApp();
@@ -686,7 +592,14 @@ export function Editor({
       description: '',
       category: 'Common Interest',
     },
-    album: { ownerId: me.id, name: '', coverMediaId: null, createdAt: now() },
+    album: {
+      ownerId: ownerId || me.id,
+      name: '',
+      description: '',
+      location: '',
+      coverMediaId: null,
+      createdAt: now(),
+    },
     message: {
       senderId: me.id,
       recipientId: world.profiles.find((p: Row) => p.id !== me.id)?.id || me.id,
@@ -694,6 +607,21 @@ export function Editor({
       body: '',
       createdAt: now(),
       read: 0,
+    },
+    relationship: {
+      relationshipType: 'Friends',
+      howMet: '',
+      metAt: null,
+      closeness: '',
+      sharedHistory: '',
+    },
+    relationshipEvent: {
+      friendshipId,
+      type: 'relationship_changed',
+      label: '',
+      details: '',
+      occurredAt: new Date().toISOString().slice(0, 10),
+      createdAt: now(),
     },
   };
   const [form, setForm] = useState<Row>({
@@ -703,8 +631,6 @@ export function Editor({
     ...row,
   });
   const [uploading, setUploading] = useState(false);
-  const [photoItems, setPhotoItems] = useState<Row[]>([]);
-  const batchPhotos = kind === 'photo' && !row;
   const [newAlbum, setNewAlbum] = useState('My Photos');
   const set = (key: string, value: unknown) =>
     setForm((f) => {
@@ -736,10 +662,17 @@ export function Editor({
       ['politicalViews', 'Political Views'],
       ['religiousViews', 'Religious Views'],
       ['interests', 'Interests', 'area'],
+      ['voice', 'Voice', 'area'],
+      ['communicationStyle', 'Communication Style', 'area'],
+      ['behavioralTendencies', 'Behavioral Tendencies', 'area'],
     ],
     post: [['body', 'Post', 'area']],
     photo: [['caption', 'Caption']],
-    album: [['name', 'Album name']],
+    album: [
+      ['name', 'Album name'],
+      ['description', 'Description', 'area'],
+      ['location', 'Location'],
+    ],
     event: [
       ['title', 'Event Name'],
       ['description', 'Description', 'area'],
@@ -755,6 +688,17 @@ export function Editor({
       ['subject', 'Subject'],
       ['body', 'Message', 'area'],
     ],
+    relationship: [
+      ['relationshipType', 'Relationship type'],
+      ['howMet', 'How they know each other', 'area'],
+      ['metAt', 'When they met', 'date'],
+      ['sharedHistory', 'Shared history', 'area'],
+    ],
+    relationshipEvent: [
+      ['label', 'What changed'],
+      ['occurredAt', 'When it happened', 'date'],
+      ['details', 'Details', 'area'],
+    ],
   };
   const dateLocal = (v: string) => {
     const d = new Date(v);
@@ -767,7 +711,6 @@ export function Editor({
     <form
       onSubmit={async (e) => {
         e.preventDefault();
-        if (uploading || busy) return;
         const table: Record<string, string> = {
           profile: 'profiles',
           post: 'posts',
@@ -776,11 +719,10 @@ export function Editor({
           event: 'events',
           group: 'groups',
           message: 'messages',
+          relationship: 'friendships',
+          relationshipEvent: 'relationshipEvents',
         };
-        if (
-          kind === 'photo' &&
-          (batchPhotos ? !photoItems.length : !form.mediaId)
-        ) {
+        if (kind === 'photo' && !form.mediaId) {
           fail('Choose an uploaded image or an external image URL.');
           return;
         }
@@ -791,35 +733,18 @@ export function Editor({
         const record =
           existing?.state === 'stub' && !row
             ? { ...form, id: existing.id }
-            : form;
-        const saved = batchPhotos
-          ? await run('photos/batch', {
-              photos: photoItems.map((media) => ({
-                id: media.id === photoItems[0].id ? record.id : uid(),
-                ownerId: form.ownerId,
-                albumId: form.albumId,
-                mediaId: media.id,
-                caption: media.caption,
-                createdAt: form.createdAt,
-              })),
-              albumName: newAlbum,
-            })
-          : kind === 'photo'
+            : kind === 'relationship'
+              ? { ...form, metAt: form.metAt || null }
+              : form;
+        const saved =
+          kind === 'photo'
             ? await run('photos/save', { photo: record, albumName: newAlbum })
             : await save(table[kind], record);
         if (saved) {
           open(null);
           if (kind === 'profile') go('profile', record.id);
-          if (onSaved)
-            onSaved(
-              batchPhotos
-                ? {
-                    ...record,
-                    mediaId: photoItems[0].id,
-                    caption: photoItems[0].caption,
-                  }
-                : record,
-            );
+          if (kind === 'album') go('photos', record.id);
+          if (onSaved) onSaved(record);
           else if (kind === 'photo') go('photos');
         }
       }}
@@ -868,20 +793,7 @@ export function Editor({
           )}
         </>
       )}
-      {batchPhotos && (
-        <PhotoBatchEditor
-          items={photoItems}
-          onChange={setPhotoItems}
-          onBusy={setUploading}
-        />
-      )}
-      {batchPhotos && onSaved && (
-        <p className="form-help">
-          All selected photos will be saved to the album. The first one will be
-          attached to your post.
-        </p>
-      )}
-      {['profile', 'photo', 'album'].includes(kind) && !batchPhotos && (
+      {['profile', 'photo'].includes(kind) && (
         <MediaEditor
           id={
             form[
@@ -923,6 +835,36 @@ export function Editor({
           </NativeSelect>
         </label>
       )}
+      {kind === 'relationship' && (
+        <label className="form-field" htmlFor="relationship-closeness">
+          Closeness
+          <NativeSelect
+            id="relationship-closeness"
+            value={form.closeness}
+            onChange={(e) => set('closeness', e.target.value)}
+          >
+            <option value="">Not specified</option>
+            {['Acquaintances', 'Casual', 'Close', 'Very close'].map((value) => (
+              <option key={value}>{value}</option>
+            ))}
+          </NativeSelect>
+        </label>
+      )}
+      {kind === 'relationshipEvent' && (
+        <label className="form-field" htmlFor="relationship-event-type">
+          Event type
+          <NativeSelect
+            id="relationship-event-type"
+            value={form.type}
+            onChange={(e) => set('type', e.target.value)}
+          >
+            <option value="met">Met</option>
+            <option value="relationship_changed">Relationship changed</option>
+            <option value="milestone">Milestone</option>
+            <option value="other">Other</option>
+          </NativeSelect>
+        </label>
+      )}
       {kind === 'photo' && (
         <>
           <label className="form-field">
@@ -953,7 +895,7 @@ export function Editor({
           )}
         </>
       )}
-      {(batchPhotos ? [] : fields[kind])?.map(([key, label, type]) => (
+      {fields[kind]?.map(([key, label, type]) => (
         <div key={key}>
           <label className="form-field">
             {label}
@@ -975,7 +917,9 @@ export function Editor({
                 }
                 maxLength={20000}
                 required={
-                  ['name', 'title', 'startsAt'].includes(key) &&
+                  ['name', 'title', 'startsAt', 'label', 'occurredAt'].includes(
+                    key,
+                  ) &&
                   !(
                     kind === 'profile' &&
                     form.state === 'stub' &&
@@ -1044,13 +988,11 @@ export function Editor({
         <button className="blue-button" disabled={busy || uploading}>
           {busy
             ? 'Saving…'
-            : batchPhotos
-              ? `Save ${photoItems.length} photo${photoItems.length === 1 ? '' : 's'}`
-              : kind === 'message'
-                ? 'Send'
-                : kind === 'profile' && !row
-                  ? 'Create Profile'
-                  : 'Save Changes'}
+            : kind === 'message'
+              ? 'Send'
+              : kind === 'profile' && !row
+                ? 'Create Profile'
+                : 'Save Changes'}
         </button>
       </div>
     </form>

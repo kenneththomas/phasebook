@@ -41,6 +41,7 @@ import { Feed } from './feed';
 import {
   Profile,
   Friends,
+  Friendship,
   Photos,
   Events,
   Groups,
@@ -100,6 +101,7 @@ export default function App() {
         photos: 'Photos',
         messages: 'Messages',
         friends: 'Friends',
+        friendship: 'Friendship',
         events: 'Events',
         notifications: 'Notifications',
         search: 'Search',
@@ -177,6 +179,7 @@ export default function App() {
     run,
     go,
     open: setModal,
+    error,
     fail: setError,
     person,
     chat,
@@ -235,8 +238,11 @@ export default function App() {
     case 'friends':
       content = <Friends />;
       break;
+    case 'friendship':
+      content = <Friendship id={route.id} />;
+      break;
     case 'photos':
-      content = <Photos />;
+      content = <Photos key={route.id || 'all'} initialAlbumId={route.id} />;
       break;
     case 'events':
       content = <Events />;

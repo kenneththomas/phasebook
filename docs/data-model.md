@@ -22,6 +22,7 @@ All tables below have `id` and `externalId`. Arrows describe local foreign keys.
 | -------------------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | Profile              | `avatarMediaId → media` (optional)                                                          | The profile itself                                              |
 | Friendship           | `profileId, friendId → profiles`                                                            | Involves both; `profileId` initiates a pending request          |
+| Relationship event   | `friendshipId → friendships`                                                                | Simulation context shared by both people                        |
 | Post                 | `authorId → profiles`; optional `wallId → profiles`, `groupId → groups`, `photoId → photos` | Author initiates; wall recipient and group are distinct targets |
 | Comment              | `authorId → profiles`, `postId → posts`                                                     | Comment author; parent post is a dependency                     |
 | Like                 | `profileId → profiles`, `postId → posts`                                                    | Acting profile                                                  |
@@ -43,6 +44,10 @@ identity. Comments and likes currently target posts; other target types should u
 enforced relational references, rather than an unchecked generic string target.
 
 Pair constraints prevent duplicate friendships, likes, memberships and RSVPs.
+Friendships carry current lightweight context (`relationshipType`, `howMet`,
+`metAt`, `closeness`, and `sharedHistory`); dated `relationshipEvents` retain
+known milestones and changes without pretending the current edge is a complete
+historical record. Deleting a friendship cascades its relationship events.
 Deleting a post cascades its comments and likes. Referenced media cannot be
 deleted (`RESTRICT`). Profile deletion remains unsupported. Album deletion
 cascades its photos, so ordinary editing preserves the album rather than deleting
@@ -179,23 +184,26 @@ external IDs. Save a v2 export to retain those identities on subsequent transfer
 The legacy record adapter also accepts existing v1 callers at the store boundary;
 the new editor and v2 state do not expose legacy image/album fields.
 
-The existing complete-world format now has `schemaVersion: 2` with required
-`media` and `albums` collections. It retains **local references for full-world
-snapshot compatibility**, alongside stable external IDs. It is not the future
-per-entity portable format. `/api/state` contains no image bytes. `/api/export`
-includes local bytes only in a separate top-level `mediaFiles` map keyed by media
-external ID. On import, local files are materialized with fresh managed filenames;
-record identities and references remain intact. Remote sources and bundled
-source distinctions survive the round trip.
+The complete-world data has `schemaVersion: 2` with required `media` and `albums`
+collections. `/api/state` and exported `world.json` contain no image bytes.
+`/api/world-packages/export` streams a ZIP64-capable `.phasebook` archive containing
+`manifest.json`, `world.json`, and binary files below `media/`. On import, local
+files are materialized with fresh managed filenames; record identities and
+references remain intact. Remote sources stay URL references. Bundled assets are
+copied into the package and become managed local files so a restored world does
+not depend on a particular application build.
 
 Full-world replacement still requires every referenced row and at least one
 profile, but referenced profiles may be stubs. SQLite FK validation and batch
 duplicate checking are separate from external reference resolution, so future
 partial imports can use `putExternal` rather than requiring a closed world.
-JSON HTTP imports remain limited to 25 MB and collections to 20,000 rows. Successful
-replacement saves the previous world (including local media payloads) to
-`backup-<timestamp>-<id>.json`. Invalid replacement leaves the prior world intact.
-Very large worlds will eventually need an archive/streaming export; that is deferred.
+Legacy JSON HTTP imports remain limited to 25 MB and collections to 20,000 rows.
+They may still contain the old top-level `mediaFiles` payload for compatibility,
+but Phasebook never generates that representation. Successful replacement saves
+the previous world to `backup-<timestamp>-<id>.phasebook`. World package upload,
+validation, extraction and download are streamed or staged on disk rather than
+buffering the media library in memory. Invalid replacement leaves the prior world
+intact.
 
 For filesystem backups, stop the server and copy the SQLite database **and its
 media directory** together. Keep automatic migration backups until the upgraded
