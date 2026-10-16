@@ -1,9 +1,14 @@
 import { createServer } from 'node:http';
 import os from 'node:os';
-import { readFile, stat } from 'node:fs/promises';
-import { resolve, extname, sep } from 'node:path';
+import { createWriteStream } from 'node:fs';
+import { mkdtemp, readFile, rm, stat, unlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve, extname, sep } from 'node:path';
+import { Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { createStore, schema } from './store.mjs';
+import { photoAction } from './photos.mjs';
 import {
   createGeneration,
   httpProviderFromEnvironment,
@@ -13,6 +18,15 @@ import {
   previewProfilePackage,
   importProfilePackage,
 } from './profile-package.mjs';
+import {
+  backupWorldPackage,
+  exportWorldPackage,
+  importWorldPackage,
+  previewWorldPackage,
+  WORLD_PACKAGE_MIME,
+} from './world-package.mjs';
+
+const MAX_WORLD_PACKAGE_BYTES = 61_000_000_000;
 
 export function createApp(store, middleware = null) {
   const generation = createGeneration(store, {
@@ -62,21 +76,29 @@ export function createApp(store, middleware = null) {
         ]);
         if (req.headers.origin && !allowedOrigins.has(req.headers.origin))
           return json(403, { error: 'Use the local Phasebook window.' });
+        if (req.method === 'GET' && url.pathname === '/api/state')
+          return json(200, store.getState());
+        if (req.method === 'GET' && url.pathname === '/api/export') {
+          const payload = JSON.stringify(store.exportState(), null, 2);
+          res.writeHead(200, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Disposition': 'attachment; filename="phasebook.json"',
+            'Cache-Control': 'no-store',
+          });
+          return res.end(payload);
+        }
         if (
           req.method === 'GET' &&
-          ['/api/state', '/api/export'].includes(url.pathname)
+          url.pathname === '/api/world-packages/export'
         ) {
-          if (url.pathname.endsWith('export'))
-            res.setHeader(
-              'Content-Disposition',
-              'attachment; filename="phasebook.json"',
-            );
-          return json(
-            200,
-            url.pathname.endsWith('export')
-              ? store.exportState()
-              : store.getState(),
-          );
+          const result = exportWorldPackage(store);
+          res.writeHead(200, {
+            'Content-Type': WORLD_PACKAGE_MIME,
+            'Content-Disposition': `attachment; filename="${result.filename}"`,
+            'Cache-Control': 'no-store',
+          });
+          result.stream.on('error', () => res.destroy());
+          return result.stream.pipe(res);
         }
         if (req.method === 'GET' && url.pathname === '/api/generation')
           return json(200, {
@@ -137,6 +159,50 @@ export function createApp(store, middleware = null) {
         }
         if (!['POST', 'DELETE'].includes(req.method))
           return json(404, { error: 'Not found.' });
+        const worldPackageUpload = url.pathname.startsWith(
+          '/api/world-packages/',
+        );
+        if (worldPackageUpload && req.method === 'POST') {
+          const uploadDirectory = await mkdtemp(
+              join(tmpdir(), 'phasebook-upload-'),
+            ),
+            uploadPath = join(uploadDirectory, 'world.phasebook');
+          let bytes = 0;
+          const counter = new Transform({
+            transform(chunk, _encoding, callback) {
+              bytes += chunk.length;
+              callback(
+                bytes > MAX_WORLD_PACKAGE_BYTES
+                  ? new Error('World package is larger than 61 GB.')
+                  : null,
+                chunk,
+              );
+            },
+          });
+          try {
+            await pipeline(
+              req,
+              counter,
+              createWriteStream(uploadPath, { flags: 'wx' }),
+            );
+            if (url.pathname === '/api/world-packages/preview')
+              return json(200, await previewWorldPackage(uploadPath));
+            if (url.pathname === '/api/world-packages/import')
+              return json(
+                200,
+                await importWorldPackage(
+                  store,
+                  uploadPath,
+                  store.filename === ':memory:'
+                    ? store.mediaDir
+                    : dirname(store.filename),
+                ),
+              );
+            return json(404, { error: 'Unknown world package action.' });
+          } finally {
+            await rm(uploadDirectory, { recursive: true, force: true });
+          }
+        }
         const chunks = [];
         let bytes = 0;
         const profilePackageUpload = url.pathname.startsWith(
@@ -196,6 +262,16 @@ export function createApp(store, middleware = null) {
           }
           return json(404, { error: 'Unknown generation action.' });
         }
+        if (
+          req.method === 'POST' &&
+          /^\/api\/photos\/(publish|post|reorder|move|cover|profile-picture|delete-photo|delete-album)$/.test(
+            url.pathname,
+          )
+        )
+          return json(
+            200,
+            photoAction(store, url.pathname.split('/').at(-1), value),
+          );
         if (req.method === 'POST' && url.pathname === '/api/photos/batch') {
           const { photos, album } = store.writePhotosResult(
             value.photos,
@@ -241,8 +317,20 @@ export function createApp(store, middleware = null) {
             200,
             store.hydrateProfile(value.externalId, value.profile),
           );
-        if (req.method === 'POST' && url.pathname === '/api/import')
-          return json(200, store.importState(value));
+        if (req.method === 'POST' && url.pathname === '/api/import') {
+          const backup = await backupWorldPackage(
+            store,
+            store.filename === ':memory:'
+              ? store.mediaDir
+              : dirname(store.filename),
+          );
+          try {
+            return json(200, store.importState(value, false));
+          } catch (error) {
+            await unlink(backup).catch(() => {});
+            throw error;
+          }
+        }
         if (req.method === 'POST' && url.pathname === '/api/switch') {
           store.switchProfile(value.profileId);
           return json(
@@ -271,18 +359,20 @@ export function createApp(store, middleware = null) {
           store.remove(match[1], id);
           result = changes({}, { [match[1]]: [id] });
         } else if (req.method === 'POST' && !match[2]) {
-          const { record, notification, stories, photo, album } =
+          const { record, notification, stories } =
             match[1] === 'profiles'
               ? store.writeProfileResult(value)
               : store.writeResult(match[1], value);
           const media = referencedMedia(record);
           result = changes({
             [match[1]]: [record],
-            ...(photo ? { photos: [photo], albums: [album] } : {}),
             ...(match[1] === 'profiles'
               ? {
                   networks: store.getState().networks,
                   networkMemberships: store.getState().networkMemberships,
+                  albums: store.getState().albums,
+                  photos: store.getState().photos,
+                  profilePictures: store.getState().profilePictures,
                 }
               : {}),
             ...(stories?.length ? { posts: stories } : {}),

@@ -232,7 +232,11 @@ test('accepting a friend request returns the friendship story with the mutation'
     });
     assert.equal(accepted.status, 200);
     const mutation = await accepted.json();
-    assert.equal(mutation.upserts.posts.length, 1);
+    assert.equal(mutation.upserts.posts.length, 2);
+    assert.deepEqual(mutation.upserts.posts.map((post) => post.wallId).sort(), [
+      'p1',
+      'p2',
+    ]);
     const story = mutation.upserts.posts[0];
     assert.equal(story.authorId, 'p2');
     assert.equal(story.wallId, 'p2');

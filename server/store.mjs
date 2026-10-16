@@ -1,8 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import {
   mkdirSync,
-  readFileSync,
   writeFileSync,
+  readFileSync,
   unlinkSync,
   mkdtempSync,
   rmSync,
@@ -16,22 +16,25 @@ import {
   tables,
   references,
   profileDefaults,
+  friendshipDefaults,
   validateRecord,
   createSchema,
   createNetworkSchema,
-  createPhotoTagSchema,
-  createPhotoFeedbackSchema,
+  createFeatureSchema,
+  photoDefaults,
+  upgradePhotoData,
 } from './schema.mjs';
 import { networkFields, networkDirectory } from '../lib/networks.mjs';
 import { schema as legacySchema } from './legacy-schema.mjs';
 import {
   validateMedia,
   storeUpload,
+  storeUploadFile,
   filePayload,
   localPath,
   remoteURL,
 } from './media.mjs';
-export { schema, tables, validateRecord } from './schema.mjs';
+export { references, schema, tables, validateRecord } from './schema.mjs';
 export const newExternalId = () => randomUUID();
 
 export function assertUniqueIdentities(table, rows, requireExternal = true) {
@@ -106,6 +109,13 @@ export function createStore(
   function rawPut(table, record) {
     validateRecord(table, record);
     if (table === 'media') validateMedia(record, mediaDir);
+    if (table === 'photos') {
+      const album = get('albums', record.albumId);
+      if (album && album.ownerId !== record.ownerId)
+        throw new Error(
+          'A photo must belong to an album owned by its uploader.',
+        );
+    }
     if (table === 'networkMemberships') {
       const network = get('networks', record.networkId);
       const fields = networkFields[network?.type];
@@ -224,7 +234,7 @@ export function createStore(
     );
   }
   function normalize(table, input, worldDate) {
-    const row = { ...input };
+    const row = { ...photoDefaults[table], ...input };
     if (table === 'profiles') {
       if (Object.hasOwn(row, 'avatar')) {
         row.avatarMediaId = legacyMedia(row.avatar);
@@ -247,6 +257,7 @@ export function createStore(
         createdAt: worldDate ?? new Date().toISOString(),
         ...row,
       };
+    if (table === 'friendships') return { ...friendshipDefaults, ...row };
     if (table === 'groups') return { creatorId: null, ...row };
     if (table === 'photos') {
       if (Object.hasOwn(row, 'src')) {
@@ -264,6 +275,8 @@ export function createStore(
           externalId: newExternalId(),
           ownerId: row.ownerId,
           name: row.album,
+          description: '',
+          location: '',
           coverMediaId: null,
           createdAt: row.createdAt,
         });
@@ -497,36 +510,40 @@ export function createStore(
         .all(pattern, normalizedLimit),
     };
   }
-  function exportState() {
+  function exportState({ includeMedia = true } = {}) {
     const state = getState();
     state.generationHistory = db
       .prepare('SELECT payload FROM generationRuns ORDER BY rowid')
       .all()
       .map((row) => JSON.parse(row.payload));
     if (!state.generationHistory.length) delete state.generationHistory;
-    const local = state.media.filter((m) => m.sourceType === 'local');
-    if (local.length)
-      state.mediaFiles = Object.fromEntries(
-        local.map((m) => [m.externalId, filePayload(mediaDir, m)]),
-      );
+    if (includeMedia) {
+      const local = state.media.filter((m) => m.sourceType === 'local');
+      if (local.length)
+        state.mediaFiles = Object.fromEntries(
+          local.map((m) => [m.externalId, filePayload(mediaDir, m)]),
+        );
+    }
     state.media = state.media.map((m) => ({ ...m, cachedLocalPath: null }));
     return state;
   }
-  function replaceState(value) {
+  function replaceState(value, packagedMedia = null) {
     if (
       !value ||
       ![1, 2].includes(value.schemaVersion) ||
       typeof value.settings?.activeProfileId !== 'string'
     )
       throw new Error('Expected a Phasebook schemaVersion 1 or 2 export.');
-    value = {
+    value = upgradePhotoData({
       ...value,
       networks: value.networks ?? [],
       networkMemberships: value.networkMemberships ?? [],
-      photoTags: value.photoTags ?? [],
-      photoLikes: value.photoLikes ?? [],
-      photoComments: value.photoComments ?? [],
-    };
+      relationshipEvents: value.relationshipEvents ?? [],
+      friendships: value.friendships?.map((row) => ({
+        ...friendshipDefaults,
+        ...row,
+      })),
+    });
     const collections =
       value.schemaVersion === 1
         ? [...Object.keys(legacySchema), 'networks', 'networkMemberships']
@@ -571,6 +588,19 @@ export function createStore(
             row.cachedLocalPath = null;
             if (
               row.sourceType === 'local' &&
+              packagedMedia?.has(row.sourceLocation)
+            )
+              Object.assign(
+                row,
+                storeUploadFile(
+                  mediaDir,
+                  packagedMedia.get(row.sourceLocation),
+                  row.mimeType,
+                  (path) => newFiles.push(path),
+                ),
+              );
+            else if (
+              row.sourceType === 'local' &&
               Object.hasOwn(value.mediaFiles ?? {}, row.externalId)
             )
               Object.assign(
@@ -589,10 +619,10 @@ export function createStore(
       value.settings.activeProfileId,
     );
   }
-  function importState(value, backup = true) {
+  function importState(value, backup = true, packagedMedia = null) {
     const before = backup ? exportState() : null;
     return transaction(() => {
-      replaceState(value);
+      replaceState(value, packagedMedia);
       // Imported audit trails are informational: never trust imported inverse writes.
       db.exec('DELETE FROM generationRuns');
       if (value.generationHistory !== undefined) {
@@ -625,11 +655,11 @@ export function createStore(
       }
       if (db.prepare('PRAGMA foreign_key_check').all().length)
         throw new Error('Import contains a reference to a missing record.');
-      if (backup && filename !== ':memory:')
+      if (before)
         writeFileSync(
           resolve(
-            dirname(filename),
-            `backup-${Date.now()}-${randomUUID().slice(0, 8)}.json`,
+            filename === ':memory:' ? mediaDir : dirname(filename),
+            'backup-' + Date.now() + '-' + randomUUID().slice(0, 8) + '.json',
           ),
           JSON.stringify(before, null, 2),
           { flag: 'wx' },
@@ -699,23 +729,14 @@ export function createStore(
         profile.avatarMediaId === previous?.avatarMediaId
       )
         return result;
-      const createdAt = new Date().toISOString();
-      const existing = db
-        .prepare(
-          'SELECT photos.* FROM photos JOIN albums ON albums.id=photos.albumId WHERE photos.ownerId=? AND albums.name=? AND photos.mediaId=? LIMIT 1',
-        )
-        .get(profile.id, 'Profile Photos', profile.avatarMediaId);
       const photo =
-        existing ??
-        writePhotoResult(
-          {
-            ownerId: profile.id,
-            mediaId: profile.avatarMediaId,
-            caption: '',
-            createdAt,
-          },
-          'Profile Photos',
-        ).record;
+        profile.avatarMediaId &&
+        db
+          .prepare(
+            'SELECT * FROM photos WHERE ownerId=? AND mediaId=? ORDER BY rowid LIMIT 1',
+          )
+          .get(profile.id, profile.avatarMediaId);
+      if (!photo) return result;
       const album = put('albums', {
         ...get('albums', photo.albumId),
         coverMediaId: profile.avatarMediaId,
@@ -723,17 +744,91 @@ export function createStore(
       return { ...result, photo, album };
     });
   }
+  function rememberProfilePicture(profileId, mediaId, photoId, worldDate) {
+    if (!mediaId) return;
+    const date = worldDate ?? new Date().toISOString();
+    let photo = photoId
+      ? get('photos', photoId)
+      : db
+          .prepare(
+            'SELECT * FROM photos WHERE mediaId=? AND ownerId=? ORDER BY rowid LIMIT 1',
+          )
+          .get(mediaId, profileId);
+    if (!photo) {
+      let album = db
+        .prepare(
+          "SELECT * FROM albums WHERE ownerId=? AND name='Profile Photos' ORDER BY rowid LIMIT 1",
+        )
+        .get(profileId);
+      album ??= put('albums', {
+        ownerId: profileId,
+        name: 'Profile Photos',
+        coverMediaId: mediaId,
+        createdAt: date,
+      });
+      photo = put('photos', {
+        ownerId: profileId,
+        albumId: album.id,
+        mediaId,
+        caption: '',
+        createdAt: date,
+      });
+    }
+    if (
+      !db
+        .prepare(
+          'SELECT 1 FROM profilePictures WHERE profileId=? AND photoId=?',
+        )
+        .get(profileId, photo.id)
+    )
+      put('profilePictures', { profileId, photoId: photo.id, createdAt: date });
+  }
   function writeResult(table, input, { worldDate } = {}) {
     return transaction(() => {
       checkTable(table);
       const previous = input.id ? get(table, input.id) : undefined;
       const record = put(table, input, { worldDate });
+      if (
+        table === 'profiles' &&
+        previous?.avatarMediaId !== record.avatarMediaId
+      ) {
+        rememberProfilePicture(
+          record.id,
+          previous?.avatarMediaId,
+          undefined,
+          worldDate,
+        );
+        rememberProfilePicture(
+          record.id,
+          record.avatarMediaId,
+          undefined,
+          worldDate,
+        );
+      }
       let recipient,
         actor,
         body,
         postId = null,
+        photoId = null,
         stories = [];
-      if (!previous && ['comments', 'likes'].includes(table)) {
+      if (
+        !previous &&
+        ['photoLikes', 'photoComments', 'photoTags'].includes(table)
+      ) {
+        const photo = get('photos', record.photoId);
+        recipient = table === 'photoTags' ? record.profileId : photo?.ownerId;
+        actor =
+          table === 'photoTags'
+            ? record.actorId
+            : record.authorId || record.profileId;
+        photoId = record.photoId;
+        body =
+          table === 'photoTags'
+            ? 'tagged you in a photo.'
+            : table === 'photoLikes'
+              ? 'liked your photo.'
+              : 'commented on your photo.';
+      } else if (!previous && ['comments', 'likes'].includes(table)) {
         const post = get('posts', record.postId);
         if (post) {
           recipient = post.authorId;
@@ -804,6 +899,7 @@ export function createStore(
             actorId: actor,
             body: (profile.name || 'Unknown profile') + ' ' + body,
             postId,
+            photoId,
             createdAt: worldDate ?? new Date().toISOString(),
             read: 0,
           });
@@ -821,7 +917,7 @@ export function createStore(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='profiles'",
       )
       .get();
-    if (version > 9)
+    if (version > 11)
       throw new Error(
         'This database was created by a newer Phasebook version.',
       );
@@ -974,11 +1070,23 @@ export function createStore(
         db.exec('PRAGMA user_version=7;');
       });
     }
-    transaction(() => {
-      createPhotoTagSchema(db);
-      createPhotoFeedbackSchema(db);
-      db.exec('PRAGMA user_version=9;');
-    });
+    const priorVersion = db.prepare('PRAGMA user_version').get().user_version;
+    if (priorVersion < 11) {
+      if (filename !== ':memory:')
+        db.prepare('VACUUM INTO ?').run(
+          resolve(
+            dirname(filename),
+            'migration-v' +
+              priorVersion +
+              '-' +
+              Date.now() +
+              '-' +
+              randomUUID().slice(0, 8) +
+              '.sqlite',
+          ),
+        );
+      transaction(() => createFeatureSchema(db));
+    }
     initializeGeneration(db);
     // A terminated provider request cannot still be running after startup.
     for (const row of db
@@ -1008,6 +1116,7 @@ export function createStore(
   }
   return {
     db,
+    filename,
     mediaDir,
     transaction,
     get,
@@ -1025,6 +1134,7 @@ export function createStore(
     createPackagedMedia,
     writePhoto,
     writePhotoResult,
+    rememberProfilePicture,
     writePhotosResult,
     writeProfileResult,
     resolveExternal,

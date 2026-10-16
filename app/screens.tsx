@@ -1,4 +1,6 @@
 import { ProfileNetworks } from './networks';
+import { Photos, PhotoGrid } from './photos';
+export { Photos } from './photos';
 import { useEffect, useState } from 'react';
 import { Users, Plus } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -6,8 +8,6 @@ import { NativeSelect } from '@/components/ui/native-select';
 import { useApp, PersonLink } from './context';
 import { Pager, pageRows } from './pagination';
 import {
-  mediaURL,
-  albumName,
   profileName,
   Avatar,
   uid,
@@ -15,6 +15,7 @@ import {
   type Row,
   request,
   type SearchResult,
+  ageFromBirthday,
 } from './shared';
 import { Feed } from './feed';
 
@@ -33,9 +34,15 @@ export function Title({
   );
 }
 export function Profile({ id }: { id: string }) {
-  const { world, person, open } = useApp();
+  const { world, me, person, open, go } = useApp();
   const p = person(id);
   if (!p) return <p>Profile not found.</p>;
+  const friendship = world.friendships.find(
+    (row: Row) =>
+      row.status === 'accepted' &&
+      ((row.profileId === me.id && row.friendId === id) ||
+        (row.friendId === me.id && row.profileId === id)),
+  );
   const shortYear = (year: unknown) => {
     const value =
       typeof year === 'string' || typeof year === 'number' ? year : '';
@@ -49,16 +56,27 @@ export function Profile({ id }: { id: string }) {
   const collegeInfo = p.collegeMajor
     ? ([collegeLine, p.collegeMajor] as const)
     : collegeLine;
+  const age = ageFromBirthday(p.birthday);
   return (
     <>
       <Title
         action={
-          <button
-            className="gray-button"
-            onClick={() => open({ kind: 'profile', row: p })}
-          >
-            Edit Profile
-          </button>
+          <div className="title-actions">
+            {friendship && (
+              <button
+                className="gray-button"
+                onClick={() => go('friendship', friendship.id)}
+              >
+                See Friendship
+              </button>
+            )}
+            <button
+              className="gray-button"
+              onClick={() => open({ kind: 'profile', row: p })}
+            >
+              Edit Profile
+            </button>
+          </div>
         }
       >
         {profileName(p)}
@@ -104,6 +122,9 @@ export function Profile({ id }: { id: string }) {
               ['Employer', 'employer'],
               ['Interests', 'interests'],
               ['About Me', 'bio'],
+              ['Voice', 'voice'],
+              ['Communication Style', 'communicationStyle'],
+              ['Behavioral Tendencies', 'behavioralTendencies'],
             ].map(([label, key]) => (
               <div key={key}>
                 <dt>{label}:</dt>
@@ -119,6 +140,20 @@ export function Profile({ id }: { id: string }) {
                       </>
                     ) : (
                       collegeInfo || 'Not added yet'
+                    )
+                  ) : key === 'birthday' ? (
+                    p.birthday ? (
+                      <>
+                        {p.birthday}
+                        {age !== null && (
+                          <>
+                            {' '}
+                            ({age} {age === 1 ? 'year' : 'years'} old)
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      'Not added yet'
                     )
                   ) : key === 'relationship' ? (
                     <>
@@ -140,7 +175,6 @@ export function Profile({ id }: { id: string }) {
         </TabsContent>
         <TabsContent value="Photos">
           <Photos ownerId={id} />
-          <TaggedPhotos profileId={id} />
         </TabsContent>
         <TabsContent value="Boxes">
           <h2 className="info-heading">My Groups</h2>
@@ -162,8 +196,29 @@ export function Profile({ id }: { id: string }) {
     </>
   );
 }
+export function TaggedPhotos({ profileId }: { profileId: string }) {
+  const { world, person } = useApp();
+  const ids = new Set(
+    world.photoTags
+      .filter((tag) => tag.profileId === profileId)
+      .map((tag) => tag.photoId),
+  );
+  const photos = world.photos.filter((photo) => ids.has(photo.id));
+  return (
+    <section className="tagged-photos">
+      <Title>
+        Photos of {profileName(person(profileId))} ({photos.length})
+      </Title>
+      {photos.length ? (
+        <PhotoGrid photos={photos} />
+      ) : (
+        <div className="empty-state">No tagged photos yet.</div>
+      )}
+    </section>
+  );
+}
 export function Friends() {
-  const { world, me, save, remove, open, busy } = useApp();
+  const { world, me, save, remove, open, busy, go } = useApp();
   const [filter, setFilter] = useState('');
   const relation = (id: string) =>
     world.friendships.find(
@@ -222,6 +277,12 @@ export function Friends() {
                 {rel?.status === 'accepted' ? (
                   <>
                     <span className="muted">Friends</span>
+                    <button
+                      className="text-link"
+                      onClick={() => go('friendship', rel.id)}
+                    >
+                      See Friendship
+                    </button>
                     <button
                       disabled={busy}
                       onClick={() => remove('friendships', rel.id)}
@@ -289,128 +350,159 @@ export function Friends() {
     </>
   );
 }
-export function TaggedPhotos({ profileId }: { profileId: string }) {
+export function Friendship({ id }: { id: string }) {
   const { world, person, open } = useApp();
-  const taggedIds = new Set(
-    world.photoTags
-      .filter((tag) => tag.profileId === profileId)
-      .map((tag) => tag.photoId),
+  const friendship = world.friendships.find(
+    (row: Row) => row.id === id && row.status === 'accepted',
   );
-  const photos = world.photos
-    .filter((photo) => taggedIds.has(photo.id))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  return (
-    <section className="tagged-photos">
-      <Title>
-        Photos of {profileName(person(profileId))} ({photos.length})
-      </Title>
-      {photos.length ? (
-        <div className="photo-grid">
-          {photos.map((photo) => (
-            <button
-              className="album"
-              key={photo.id}
-              onClick={() => open({ kind: 'viewPhoto', row: photo })}
-            >
-              <img
-                src={mediaURL(world, photo.mediaId)}
-                alt={photo.caption || 'Tagged photo'}
-              />
-              <b>{photo.caption || 'Photo'}</b>
-              <span>Added by {profileName(person(photo.ownerId))}</span>
-            </button>
-          ))}
-        </div>
-      ) : (
-        <div className="empty-state">No tagged photos yet.</div>
-      )}
-    </section>
-  );
-}
-export function Photos({ ownerId }: { ownerId?: string }) {
-  const { world, open } = useApp();
-  const [album, setAlbum] = useState('');
-  const photos = world.photos.filter(
-    (p: Row) => !ownerId || p.ownerId === ownerId,
-  );
-  const albums = world.albums.filter(
-    (a) =>
-      (!ownerId || a.ownerId === ownerId) &&
-      photos.some((p) => p.albumId === a.id),
-  );
+  if (!friendship) return <p>Friendship not found.</p>;
+  const first = person(friendship.profileId);
+  const second = person(friendship.friendId);
+  const betweenPosts = [...world.posts]
+    .filter(
+      (post: Row) =>
+        !post.groupId &&
+        ((post.authorId === first.id && post.wallId === second.id) ||
+          (post.authorId === second.id && post.wallId === first.id)),
+    )
+    .sort((a: Row, b: Row) => b.createdAt.localeCompare(a.createdAt));
+  const events = world.relationshipEvents
+    .filter((event: Row) => event.friendshipId === friendship.id)
+    .sort((a: Row, b: Row) => b.occurredAt.localeCompare(a.occurredAt));
+  const date = (value: string) =>
+    new Date(
+      value + (value.length === 10 ? 'T12:00:00' : ''),
+    ).toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    });
   return (
     <>
       <Title
         action={
           <button
-            className="blue-button"
-            onClick={() => open({ kind: 'photo' })}
+            className="gray-button"
+            onClick={() => open({ kind: 'relationship', row: friendship })}
           >
-            Upload Photos
+            Edit Relationship
           </button>
         }
       >
-        {album ? albumName(world, album) : 'Photos'}
+        Friendship
       </Title>
-      {album ? (
-        <>
-          <button className="back-link" onClick={() => setAlbum('')}>
-            « All albums
-          </button>
+      <section className="friendship-hero">
+        <div className="friendship-people">
+          <div>
+            <Avatar person={first} size={82} />
+            <PersonLink id={first.id} />
+          </div>
+          <span className="friendship-ampersand">&amp;</span>
+          <div>
+            <Avatar person={second} size={82} />
+            <PersonLink id={second.id} />
+          </div>
+        </div>
+        <h2>{friendship.relationshipType || 'Friends'}</h2>
+        <div className="relationship-summary">
+          {friendship.closeness && (
+            <p>
+              <b>Closeness:</b> {friendship.closeness}
+            </p>
+          )}
+          {friendship.howMet && (
+            <p>
+              <b>How they know each other:</b> {friendship.howMet}
+            </p>
+          )}
+          {friendship.metAt && (
+            <p>
+              <b>Met:</b> {date(friendship.metAt)}
+            </p>
+          )}
+          {friendship.sharedHistory && (
+            <p>
+              <b>Shared history:</b> {friendship.sharedHistory}
+            </p>
+          )}
+          {!friendship.closeness &&
+            !friendship.howMet &&
+            !friendship.metAt &&
+            !friendship.sharedHistory && (
+              <p className="muted">
+                No relationship context has been added yet.
+              </p>
+            )}
+        </div>
+      </section>
+      <section className="friendship-section">
+        <div className="section-heading-row">
+          <h2>Relationship History</h2>
           <button
             className="gray-button"
             onClick={() =>
-              open({
-                kind: 'album',
-                row: world.albums.find((a) => a.id === album),
-              })
+              open({ kind: 'relationshipEvent', friendshipId: friendship.id })
             }
           >
-            Edit Album
+            Add Event
           </button>
-          <div className="photo-grid">
-            {photos
-              .filter((p: Row) => p.albumId === album)
-              .map((p: Row) => (
+        </div>
+        {events.length ? (
+          <ol className="relationship-timeline">
+            {events.map((event: Row) => (
+              <li key={event.id}>
                 <button
-                  className="album"
-                  key={p.id}
-                  onClick={() => open({ kind: 'viewPhoto', row: p })}
+                  className="text-link"
+                  onClick={() =>
+                    open({ kind: 'relationshipEvent', row: event })
+                  }
                 >
-                  <img src={mediaURL(world, p.mediaId)} alt={p.caption} />
-                  <b>{p.caption}</b>
+                  {event.label}
                 </button>
-              ))}
-          </div>
-        </>
-      ) : (
-        <div className="photo-grid">
-          {albums.map((a) => (
-            <button className="album" key={a.id} onClick={() => setAlbum(a.id)}>
-              <img
-                src={mediaURL(
-                  world,
-                  a.coverMediaId ||
-                    photos.find((p: Row) => p.albumId === a.id)?.mediaId,
-                )}
-                alt={a.name}
-              />
-              <b>{a.name}</b>
-              <span>
-                {profileName(world.profiles.find((p) => p.id === a.ownerId))}
-              </span>
-              <span>
-                {photos.filter((p: Row) => p.albumId === a.id).length} photos
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-      {!photos.length && (
-        <div className="empty-state">
-          No photos yet. Upload a photo to start an album.
-        </div>
-      )}
+                <time>{date(event.occurredAt)}</time>
+                {event.details && <p>{event.details}</p>}
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="muted">No relationship events have been added.</p>
+        )}
+      </section>
+      <section className="friendship-section">
+        <h2>
+          Wall Posts Between {profileName(first)} and {profileName(second)}
+        </h2>
+        {betweenPosts.length ? (
+          <Feed compose={false} posts={betweenPosts} />
+        ) : (
+          <p className="muted">
+            They have not written on each other’s Walls yet.
+          </p>
+        )}
+      </section>
+      <section className="friendship-section">
+        <h2>Photos of Both</h2>
+        <PhotoGrid
+          photos={world.photos.filter(
+            (p) =>
+              world.photoTags.some(
+                (t) => t.photoId === p.id && t.profileId === first.id,
+              ) &&
+              world.photoTags.some(
+                (t) => t.photoId === p.id && t.profileId === second.id,
+              ),
+          )}
+        />
+        {!world.photos.some(
+          (p) =>
+            world.photoTags.some(
+              (t) => t.photoId === p.id && t.profileId === first.id,
+            ) &&
+            world.photoTags.some(
+              (t) => t.photoId === p.id && t.profileId === second.id,
+            ),
+        ) && <p>No photos have both people tagged yet.</p>}
+      </section>
     </>
   );
 }
@@ -695,7 +787,7 @@ export function Messages() {
   );
 }
 export function Notifications() {
-  const { world, me, person, save, go } = useApp();
+  const { world, me, person, save, go, open } = useApp();
   const [page, setPage] = useState(1);
   const rows = world.notifications
     .filter((n: Row) => n.profileId === me.id)
@@ -710,7 +802,9 @@ export function Notifications() {
           className={'message-row ' + (!n.read ? 'unread' : '')}
           onClick={async () => {
             if (!n.read) await save('notifications', { ...n, read: 1 });
-            go(n.postId ? 'post' : 'profile', n.postId || n.actorId);
+            const photo = world.photos.find((p) => p.id === n.photoId);
+            if (photo) open({ kind: 'viewPhoto', row: photo });
+            else go(n.postId ? 'post' : 'profile', n.postId || n.actorId);
           }}
         >
           <Avatar person={person(n.actorId)} size={40} />

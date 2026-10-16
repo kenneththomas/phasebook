@@ -21,29 +21,33 @@ export function Composer({
   wallId?: string;
   groupId?: string;
 }) {
-  const { me, world, save, busy, open } = useApp();
+  const { me, world, run, busy, open } = useApp();
   const [draft, setDraft] = useState('');
   const [choosePhoto, setChoosePhoto] = useState(false);
-  const [photoId, setPhotoId] = useState<string | null>(null);
+  const [photoIds, setPhotoIds] = useState<string[]>([]);
   return (
     <form
       className="composer"
       onSubmit={async (e) => {
         e.preventDefault();
-        if (!draft.trim() && !photoId) return;
+        if (!draft.trim() && !photoIds.length) return;
         if (
-          await save('posts', {
-            id: uid(),
-            authorId: me.id,
-            wallId: groupId ? null : wallId || me.id,
-            groupId: groupId || null,
-            body: draft.trim() || 'Shared a photo.',
-            photoId,
-            createdAt: now(),
+          await run('photos/post', {
+            post: {
+              id: uid(),
+              authorId: me.id,
+              wallId: groupId ? null : wallId || me.id,
+              groupId: groupId || null,
+              body:
+                draft.trim() ||
+                `Shared ${photoIds.length === 1 ? 'a photo' : `${photoIds.length} photos`}.`,
+              createdAt: now(),
+            },
+            photoIds,
           })
         ) {
           setDraft('');
-          setPhotoId(null);
+          setPhotoIds([]);
           setChoosePhoto(false);
         }
       }}
@@ -85,9 +89,16 @@ export function Composer({
               type="button"
               key={p.id}
               aria-label={'Attach ' + p.caption}
-              aria-pressed={photoId === p.id}
-              className={photoId === p.id ? 'picked' : ''}
-              onClick={() => setPhotoId(photoId === p.id ? null : p.id)}
+              aria-pressed={photoIds.includes(p.id)}
+              className={photoIds.includes(p.id) ? 'picked' : ''}
+              disabled={!photoIds.includes(p.id) && photoIds.length >= 100}
+              onClick={() =>
+                setPhotoIds((ids) =>
+                  ids.includes(p.id)
+                    ? ids.filter((id) => id !== p.id)
+                    : [...ids, p.id],
+                )
+              }
             >
               <img src={mediaURL(world, p.mediaId)} alt={p.caption} />
             </button>
@@ -96,19 +107,29 @@ export function Composer({
             type="button"
             className="text-link"
             onClick={() =>
-              open({ kind: 'photo', onSaved: (photo) => setPhotoId(photo.id) })
+              open({
+                kind: 'photo',
+                onSaved: (photo) =>
+                  setPhotoIds((ids) =>
+                    [...ids, ...(photo.photoIds || [photo.id])].slice(0, 100),
+                  ),
+              })
             }
           >
-            Upload a photo
+            Upload photos
           </button>
         </div>
       )}
       <div className="composer-bottom">
-        {photoId && <span className="muted">1 photo attached</span>}
+        {photoIds.length > 0 && (
+          <span className="muted">
+            {photoIds.length} photo{photoIds.length === 1 ? '' : 's'} attached
+          </span>
+        )}
         <Globe size={12} />
         <button
           className="blue-button"
-          disabled={busy || (!draft.trim() && !photoId)}
+          disabled={busy || (!draft.trim() && !photoIds.length)}
         >
           Share
         </button>
@@ -128,13 +149,25 @@ export function Post({ post }: { post: Row }) {
     (a: Row, b: Row) => a.createdAt.localeCompare(b.createdAt),
   );
   const pagedComments = pageRows(comments, commentPage, 3);
-  const photo = rowById(world.photos, post.photoId);
+  const attachments = world.postPhotos
+    .filter((p) => p.postId === post.id)
+    .sort((a, b) => a.position - b.position);
+  const photoIds = attachments.length
+    ? attachments.map((p) => p.photoId)
+    : post.photoId
+      ? [post.photoId]
+      : [];
+  const photos = photoIds
+    .map((id) => rowById(world.photos, id))
+    .filter((p): p is Row => !!p);
   const friendshipPrefix = 'is now friends with ';
   const friendshipTargetName = post.body.startsWith(friendshipPrefix)
     ? post.body.slice(friendshipPrefix.length).replace(/\.$/, '')
     : '';
   const friendshipTarget = friendshipTargetName
-    ? world.profiles.find((profile: Row) => profile.name === friendshipTargetName)
+    ? world.profiles.find(
+        (profile: Row) => profile.name === friendshipTargetName,
+      )
     : undefined;
   if (friendshipTarget) {
     return (
@@ -184,18 +217,21 @@ export function Post({ post }: { post: Row }) {
           </button>
         </div>
         <p>{post.body}</p>
-        {photo && (
-          <button
-            className="photo-open"
-            onClick={() => open({ kind: 'viewPhoto', row: photo })}
-          >
-            <img
-              className="post-photo"
-              src={mediaURL(world, photo.mediaId)}
-              alt={photo.caption}
-            />
-          </button>
-        )}
+        <div className={photos.length > 1 ? 'post-photo-grid' : ''}>
+          {photos.map((photo) => (
+            <button
+              key={photo.id}
+              className="photo-open"
+              onClick={() => open({ kind: 'viewPhoto', row: photo, photoIds })}
+            >
+              <img
+                className="post-photo"
+                src={mediaURL(world, photo.mediaId)}
+                alt={photo.caption}
+              />
+            </button>
+          ))}
+        </div>
         <div className="post-actions">
           <span>{stamp(post.createdAt)}</span> ·{' '}
           <button

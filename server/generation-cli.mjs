@@ -8,8 +8,9 @@ node server/generation-cli.mjs <command> [run-id] [--input file.json]
 
 JSON input comes from --input or stdin. Commands without a body do not read stdin.
   list                     List recent runs
-  create                   Create a run: {prompt, worldDate, ...options}
+  create                   Create a run: {prompt, worldDate?, ...options}
   get <run-id>              Read the proposal and audit
+  context <run-id>          Compact scope, voices, social evidence, activity and schemas
   inspect <run-id>          Query: {table, query?, profileId?, networkId?, since?, limit?, offset?}
   schema <run-id>           Canonical fields: {table}
   neighbors <run-id>        Social context: {profileId, limit?}
@@ -25,6 +26,8 @@ Start Phasebook with npm run dev or npm start first. No browser or model adapter
 is required: the calling agent supplies the operations itself.
 PHASEBOOK_URL defaults to http://127.0.0.1:5173 (loopback only).
 Results are JSON on stdout; errors are JSON on stderr with a nonzero exit code.
+Fast path for a scoped run: create → context → propose → preview in the
+conversation → commit. Use inspect/neighbors/schema only when context leaves a gap.
 `;
 
 export async function callGenerationTool(
@@ -67,6 +70,7 @@ export async function callGenerationTool(
       path = runPath();
       break;
     case 'inspect':
+    case 'context':
     case 'schema':
     case 'neighbors':
     case 'names':
@@ -107,7 +111,7 @@ export async function callGenerationTool(
       method,
       headers: { 'Content-Type': 'application/json' },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(180000),
     });
   } catch (error) {
     throw new Error(
@@ -141,6 +145,7 @@ export async function main(args = process.argv.slice(2)) {
   const hasRun = [
     'get',
     'inspect',
+    'context',
     'schema',
     'neighbors',
     'names',
@@ -154,6 +159,7 @@ export async function main(args = process.argv.slice(2)) {
   const needsInput = [
     'create',
     'inspect',
+    'context',
     'schema',
     'neighbors',
     'names',

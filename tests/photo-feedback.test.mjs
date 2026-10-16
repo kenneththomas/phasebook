@@ -93,7 +93,7 @@ test('existing databases add photo feedback tables and preserve reactions across
   const upgraded = createStore(filename);
   assert.equal(
     upgraded.db.prepare('PRAGMA user_version').get().user_version,
-    9,
+    11,
   );
   assert.equal(upgraded.get('photos', photo.id).caption, caption);
   const like = upgraded.put('photoLikes', {

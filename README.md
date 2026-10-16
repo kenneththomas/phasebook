@@ -36,8 +36,8 @@ The same local URL serves Vite's development interface. Refresh after frontend e
 - **Log In** switches to any synthetic profile, with no password. The active profile is saved in the database.
 - **Edit My Profile**, **Edit Profile**, or **Friends → Create Profile** lets you edit anyone or add someone. You can upload an avatar, attach an external image URL, or select a bundled portrait. Manage this world lists full and stub profiles; edit a stub and select Full profile to complete it in place.
 - Share posts on the feed, another person's Wall, or a group Wall. Like/unlike and add flat comments. The pencil beside a post edits it regardless of its author.
-- **Friends** lets you add/remove relationships and send and confirm requests.
-- **Photos** contains albums; upload a local JPG, PNG or WebP (up to 3 MB) or use an external image URL, edit its caption, or attach it to a post. Albums have owners and editable names and cover images.
+- **Friends** lets you add/remove relationships and send and confirm requests. **See Friendship** collects their Wall posts and photos with both people tagged, and lets you edit relationship context—how they met, closeness, shared history, and dated changes.
+- **Photos** supports albums with descriptions and locations, batch uploads (up to 50 JPG/PNG/WebP images, 3 MB each), captions, covers, ordering, and optional album stories. Viewers include keyboard navigation, photo likes/comments, positioned tags, sharing, moving photos, and profile-picture history. Moving a photo retains its identity, discussion, and tags. See [Photos](docs/photos.md).
 - **Events** supports creation, editing and Attending/Maybe/Not Attending replies.
 - **Networks** provides school, workplace and regional people directories, including stub members. Profile affiliations link to searchable directories; World management controls create networks and edit memberships. See [historical research and design](docs/networks.md) for the intentional earlier-era regional-network extension.
 - **Generation** provides world inspection, manual or model-assisted proposals, selectable previews, atomic commit and conflict-checked undo. See [generation architecture and setup](docs/generation.md) for OpenRouter configuration, provider adapters, temporal limits and provenance.
@@ -49,19 +49,19 @@ The same local URL serves Vite's development interface. Refresh after frontend e
 
 ## Database and JSON
 
-The app creates **`data/phasebook.sqlite`** on first launch and seeds it from **`db/seed.json`**. SQLite tables, foreign keys and unique constraints keep profiles, friendships, posts, comments, likes, photos, messages, notifications, events, RSVPs, groups and memberships consistent. UI state is ephemeral; profiles and content do not live in browser storage.
+The app creates **`data/phasebook.sqlite`** on first launch and seeds it from **`db/seed.json`**. SQLite tables, foreign keys and unique constraints keep profiles, friendships, relationship events, posts, comments, likes, photos, messages, notifications, events, RSVPs, groups and memberships consistent. UI state is ephemeral; profiles and content do not live in browser storage.
 
 Open **Account** or **Manage this world**:
 
-1. **Export JSON** downloads the complete world, including relationships, the active profile and a separate media payload for uploaded images.
-2. Choose a JSON file under **Import a world** and review the record counts.
-3. **Replace World** validates the complete export and all referenced records in a transaction. Invalid imports leave existing data unchanged. A successful import first writes `data/backup-<timestamp>-<id>.json` containing the previous world.
+1. **Export World Package** downloads the complete world as a streaming `.phasebook` archive.
+2. Choose a world package under **Import a world** and review the record counts.
+3. **Replace World** validates the complete package and all referenced records in a transaction. Invalid imports leave existing data unchanged. A successful import first writes `data/backup-<timestamp>-<id>.phasebook` containing the previous world.
 
-JSON exports now use `schemaVersion: 2`; v1 worlds remain importable. Every domain record has a stable `externalId`, while local IDs remain the relational keys. Profiles may be full or stubs. Media records distinguish local uploads, remote HTTP(S) images and bundled assets. Uploaded files live under `data/media/`, never in social records or frontend source. The existing full-world format retains local references; future per-entity formats will use external identities.
+World packages contain `manifest.json`, a byte-free `world.json`, and binary image files below `media/`. World package JSON contains no base64 image bytes. ZIP64 and streaming I/O keep large media libraries out of server memory. Every domain record has a stable `externalId`, while local IDs remain the relational keys. Profiles may be full or stubs. Uploaded files live under `data/media/`, never in social records or frontend source. Legacy schemaVersion 1 and 2 JSON worlds remain importable for migration, and the existing `/api/export` JSON download remains available for compatibility.
 
-Existing SQLite databases are automatically migrated on startup, with a `migration-v1-*.sqlite` backup written first. Local IDs and relationships are preserved. Embedded images are converted to files; invalid legacy media stops migration with an error instead of being dropped. Imports remain limited to 25 MB and 20,000 records per collection.
+Existing SQLite databases are automatically migrated on startup, with a `migration-v1-*.sqlite` backup written first. Local IDs and relationships are preserved. Embedded images are converted to files; invalid legacy media stops migration with an error instead of being dropped. Legacy JSON imports remain limited to 25 MB and all imports remain limited to 20,000 records per collection.
 
-See [the data model and migration guide](docs/data-model.md) for the entity overview, ownership rules, stub hydration, shared resolution services, media storage, backup format and current limitations.
+See [world packages](docs/world-packages.md) and [the data model and migration guide](docs/data-model.md) for the entity overview, ownership rules, media storage, backups and migration behavior.
 
 Individual profiles can also be exported as merge-oriented `.phasebook`
 archives. See [portable profile packages](docs/profile-packages.md) for their
@@ -74,7 +74,7 @@ $env:PHASEBOOK_DB = 'data/another-world.sqlite'
 npm start
 ```
 
-`PORT` optionally changes the default 5173 port. `data/`, database journals, dependencies and build output are ignored by Git. Back up with JSON while the server is running; if copying SQLite directly, stop the server first and copy its media directory too.
+`PORT` optionally changes the default 5173 port. `data/`, database journals, dependencies and build output are ignored by Git. Back up with a world package while the server is running; if copying SQLite directly, stop the server first and copy its media directory too.
 
 ## Structure and checks
 

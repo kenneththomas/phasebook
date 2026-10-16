@@ -36,10 +36,12 @@ const emptyProfile = (externalId, name = 'Portable Person') => ({
 
 test('profile-only package contains portable JSON without local ids', (t) => {
   const source = memory(t, false);
-  const root = source.hydrateProfile(
-    'profile_only',
-    emptyProfile('profile_only'),
-  );
+  const root = source.hydrateProfile('profile_only', {
+    ...emptyProfile('profile_only'),
+    voice: 'quietly funny',
+    communicationStyle: 'short lowercase replies',
+    behavioralTendencies: 'rarely initiates conversations',
+  });
   const exported = exportProfilePackage(
     source,
     root.id,
@@ -54,8 +56,19 @@ test('profile-only package contains portable JSON without local ids', (t) => {
   assert.equal(manifest.schemaVersion, 1);
   assert.equal(manifest.rootProfileExternalId, 'profile_only');
   assert.equal(data.rootProfile.id, undefined);
+  assert.equal(data.rootProfile.voice, 'quietly funny');
   assert.equal(JSON.stringify(data).includes('base64'), false);
   assert.ok(Object.values(data.entities).every((rows) => rows.length === 0));
+  const target = memory(t, false);
+  const imported = importProfilePackage(target, exported.buffer, 'merge');
+  assert.equal(
+    target.get('profiles', imported.rootProfileId).voice,
+    'quietly funny',
+  );
+  assert.equal(
+    target.get('profiles', imported.rootProfileId).communicationStyle,
+    'short lowercase replies',
+  );
 });
 
 test('local and bundled images are carried while remote images remain references', (t) => {
@@ -120,11 +133,25 @@ test('import creates stubs, reuses references, and preserves wall/friend edges',
     body: 'On Bob’s wall',
     createdAt: '2026-09-08T12:00:00Z',
   });
-  source.put('friendships', {
+  const friendship = source.put('friendships', {
     externalId: 'alice_friend',
     profileId: alice.id,
     friendId: bob.id,
     status: 'accepted',
+    relationshipType: 'Dating',
+    howMet: 'Through mutual friends.',
+    metAt: '2025-09-01',
+    closeness: 'Very close',
+    sharedHistory: 'A year of shared adventures.',
+  });
+  source.put('relationshipEvents', {
+    externalId: 'alice_friend_event',
+    friendshipId: friendship.id,
+    type: 'relationship_changed',
+    label: 'Started dating',
+    details: '',
+    occurredAt: '2026-01-01',
+    createdAt: '2026-01-01T12:00:00Z',
   });
   const pkg = exportProfilePackage(source, alice.id),
     target = memory(t, false);
@@ -143,6 +170,15 @@ test('import creates stubs, reuses references, and preserves wall/friend edges',
   assert.equal(
     target.resolveExternal('friendships', 'alice_friend').friendId,
     importedBob.id,
+  );
+  assert.equal(
+    target.resolveExternal('friendships', 'alice_friend').relationshipType,
+    'Dating',
+  );
+  assert.equal(
+    target.resolveExternal('relationshipEvents', 'alice_friend_event')
+      .friendshipId,
+    target.resolveExternal('friendships', 'alice_friend').id,
   );
 
   const existingTarget = memory(t, false);

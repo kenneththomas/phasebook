@@ -16,18 +16,24 @@ The store remains the canonical application service. No AI entity tables exist.
 ## Run and context
 
 `server/generation.mjs` provides `createGeneration(store, {provider, research})`.
-`create` accepts an instruction and an explicit ISO `worldDate`, optional profile
-and network scopes, `allowNewProfiles`, `maxNewProfiles` (default 5, maximum 50),
-and `density` (0–1, excluding zero). The UI labels its date/time as UTC.
-The explicit date takes precedence over a date mentioned in the instruction.
-Automatic date inference is left to a future context provider; it cannot silently
-change the reviewed date. Scope is a relevance hint, not an access restriction.
+`create` accepts an instruction and an optional ISO `worldDate` (omit for present-day
+content), optional profile and network scopes, `allowNewProfiles`, `maxNewProfiles`
+(default 5, maximum 50), and `density` (0–1, excluding zero). The UI labels its
+date/time as UTC. When worldDate is provided, it controls the historical inspection
+context and default dates for generated records; proposed operation dates may be later
+than the world date. Without worldDate, all temporal validation is skipped.
 
 A `GenerationRun` retains the original prompt, context, creation/commit/undo
 timestamps, status, provider/model, inspected entity IDs, proposed operations,
 committed operation keys, generated entity IDs, canonical before/after images,
 warnings, errors, and concise public rationales/confidences. There are no stored
 private model reasoning traces. Provider responses are not saved wholesale.
+
+Profiles have optional generation-steering fields: `voice`,
+`communicationStyle`, and `behavioralTendencies`. They are ordinary canonical
+profile fields, editable in the profile UI and preserved by imports, exports, and
+profile packages. Inspection exposes them to agents; they guide wording and
+participation without acting as executable instructions or hard rules.
 
 Lifecycle: `draft → inspecting → proposed → committed → undone`, with `failed`
 and `discarded` branches. Draft, failed and proposed runs can be discarded.
@@ -40,7 +46,7 @@ in the proposal history and cannot later be committed from that closed run.
 An operation is `{key, action, table, data, dependsOn?, rationale?, confidence?}`.
 `action` is `create` or `update`. `table` comes from `server/schema.mjs`, so all
 current canonical entities are supported: profiles/stubs, networks/memberships,
-friendships, posts/Wall/group posts, comments, likes, events/RSVPs, groups/members,
+friendships/relationship events, posts/Wall/group posts, comments, likes, events/RSVPs, groups/members,
 albums/photos, messages, notifications and media references.
 
 Create identities are allocated by Phasebook. Updates require the existing local
@@ -78,7 +84,8 @@ IDs (the demo world contains `p1` and `p2`):
 ]
 ```
 
-Dates default to the run date; nullable fields default to null. Profile defaults
+Dates default to the run date when worldDate is set, or current time when omitted;
+nullable fields default to null. Profile defaults
 come from the canonical schema. To create a stub, use `table: "profiles"` and
 `data: {"state":"stub","name":"…"}` with profile creation enabled. Explicit
 network membership operations attach dates and other affiliations. Generation
@@ -94,36 +101,61 @@ are intentionally not exposed as proposal operations. Run undo is separate.
 
 Tools have JSON Schema parameter descriptions and bounded results:
 
+- `context`: for a profile- or network-scoped run, returns a compact planning
+  packet with the run constraints, nonempty profile traits (including voice
+  steering), bounded plausible participants and social evidence, recent posts and
+  comments, and up to eight requested schemas. Participant and activity limits are
+  independently bounded. This is the preferred first call for scoped generation.
 - `inspect`: search any canonical collection by text or ID; filter by a related
-  profile, network membership, and timeline `since`; paginate with limit/offset.
+  profile, friendship, network membership, and timeline `since`; paginate with limit/offset.
   Text matching covers interests, location, names and content.
 - `schema`: get one collection's fields, constraints, and typed reference map.
-- `neighbors`: accepted friends, mutual friends and shared networks, bounded to 50.
+- `neighbors`: accepted friends with their current relationship context, dated
+  relationship events up to the world date, mutual friends and shared networks,
+  bounded to 50.
 
 Search results stop at 50 rows and roughly 60,000 characters, with long text fields
 explicitly truncated. Offset pagination lets the agent inspect more deliberately.
 The orchestration budget is 12 model turns, at most 5 calls per turn, 100 recorded
-inspections per run and 200 proposed operations. Each network request has a
-60-second timeout. The model receives tools/results rather than the database.
+inspections per run and 200 proposed operations. Each model request has a
+3-minute timeout. The generation page shows the current phase, model turn and
+inspection count while a run is in progress. The model receives tools/results
+rather than the database.
 Queries currently scan the local world in the service; large-world indexed SQL
 query planning is a future optimization, without changing the tool contract.
 
-Content after the effective date is hidden, including reactions/comments on future
-posts. Dates on proposed content cannot exceed the world date. Comments cannot
-precede their parent post; participants cannot act before a known birthday.
-Membership `startYear`/`endYear` bounds are inclusive, supported for schools and
-workplaces. Membership creation timestamps record bookkeeping and are not treated
+Content after the effective date is hidden when a worldDate is set, including
+reactions/comments on future posts. Comments cannot precede their parent post; participants
+cannot act before a known birthday. Membership `startYear`/`endYear` bounds are
+inclusive, supported for schools and workplaces. Membership creation timestamps record bookkeeping and are not treated
 as attendance start dates. `classYear` alone does not establish attendance.
 
-Existing profile attributes and friendship rows have no version history. The tools
-explicitly warn that these facts have unknown historical validity; they cannot
-reconstruct a prior relationship status, city, interest or employer. Missing
+Existing profile attributes and friendship status have no automatic version
+history. Dated relationship events provide explicit but potentially incomplete
+history; their absence does not prove a past state. The tools explicitly warn
+that other current facts have unknown historical validity and cannot reconstruct
+a prior friendship status, city, interest or employer. Missing
 attendance dates remain unknown, not automatically confirmed. These limitations
 must inform the model's rationale. Density is a model participation target, not a
 rule that every matching person must respond or a hard quota. An autonomous model
 can choose sparse participants using social/contextual evidence. Quality and
 historical plausibility still require human preview; no deterministic local text
 generator pretends to understand arbitrary instructions.
+
+## Repeatable quality evaluation
+
+Run `npm run eval:generation` for the fixed end-to-end scenarios. They cover a
+profile Wall exchange, a network-scoped event discussion, and a sparse multi-voice
+conversation. Each fixture must pass relevance, profile consistency, distinct
+voice, social plausibility, temporal consistency, sparsity, and canonical preview
+validation; a dense generic negative fixture must fail the rubric.
+
+The pre-change agent workflows needed 5, 6, and 7 inspection calls and returned
+5,699, 3,686, and 12,605 JSON characters. The bounded `context` workflow uses one
+inspection call in each case. With the fixed limits used by the evaluation, the
+packets measured 6,646, 3,938, and 8,762 characters. This deliberately trades a
+small amount of complete, relevant context in the first two cases for four or five
+fewer round trips, while the voice-heavy case improves both calls and context size.
 
 ## Preview, commit and undo
 
@@ -152,8 +184,9 @@ are never silently overwritten. There is no force-undo mode.
 An additive `generationRuns(id, payload)` SQLite table holds the audit records.
 It is initialized idempotently alongside the existing schema; no canonical table
 rebuild or local/external ID migration is needed, and the domain schema version is
-unchanged. Dates on generated notifications/stories/affiliations use the world date;
-ordinary manual writes keep their current-time behavior.
+unchanged. Dates on generated notifications/stories/affiliations use the world date
+when set, or current time when omitted; ordinary manual writes keep their current-time
+behavior.
 
 Each committed change has optional sidecar provenance: `generated`,
 `generationRunId`, provider/model, world date, operation key, rationale and confidence.
